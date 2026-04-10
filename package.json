@@ -10,6 +10,7 @@
     "ingest": "tsx src/cli/index.ts ingest",
     "sync-calendars": "tsx src/cli/index.ts sync-calendars",
     "backtest": "tsx src/cli/index.ts backtest",
+    "walkforward": "tsx src/cli/index.ts walkforward",
     "paper": "tsx src/cli/index.ts paper"
   },
   "devDependencies": {

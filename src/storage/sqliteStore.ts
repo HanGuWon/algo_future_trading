@@ -180,4 +180,8 @@ export class SqliteStore {
       );
     }
   }
+
+  close(): void {
+    this.db.close();
+  }
 }

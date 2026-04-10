@@ -186,3 +186,85 @@ export interface BacktestResult {
   finalAccountState: AccountState;
   rejectedSignals: Array<{ tsUtc: string; reason: string }>;
 }
+
+export interface SessionMetricsBreakdown {
+  tradeCount: number;
+  netPnlUsd: number;
+}
+
+export interface SideMetricsBreakdown {
+  tradeCount: number;
+  netPnlUsd: number;
+}
+
+export interface RunMetrics {
+  tradeCount: number;
+  winRate: number;
+  netPnlUsd: number;
+  expectancyUsd: number;
+  profitFactor: number | null;
+  maxDrawdownUsd: number;
+  avgWinUsd: number;
+  avgLossUsd: number;
+  rejectedSignalCount: number;
+  sessionBreakdown: Record<SessionLabel, SessionMetricsBreakdown>;
+  sideBreakdown: Record<Side, SideMetricsBreakdown>;
+}
+
+export interface WalkForwardWindow {
+  id: string;
+  train: DateRange;
+  validation: DateRange;
+  test: DateRange;
+}
+
+export interface ParameterCandidate {
+  id: string;
+  config: StrategyConfig;
+}
+
+export interface CandidateEvaluation {
+  candidate: ParameterCandidate;
+  trainMetrics: RunMetrics;
+  validationMetrics: RunMetrics;
+  inSampleMetrics: RunMetrics;
+  isEligible: boolean;
+  score: string;
+}
+
+export interface WindowSelectionResult {
+  window: WalkForwardWindow;
+  testedCandidates: CandidateEvaluation[];
+  selectedCandidate: ParameterCandidate | null;
+  selectedTrainMetrics: RunMetrics | null;
+  selectedValidationMetrics: RunMetrics | null;
+  selectedInSampleMetrics: RunMetrics | null;
+  selectedTestMetrics: RunMetrics | null;
+  status: "selected" | "skipped";
+  reason?: string;
+}
+
+export interface WalkForwardArtifact {
+  generatedAtUtc: string;
+  symbol: string;
+  mode: "fixed" | "grid";
+  sourceRange: DateRange;
+  windowSpec: {
+    trainDays: number;
+    validationDays: number;
+    testDays: number;
+    stepDays: number;
+  };
+  windows: WindowSelectionResult[];
+  rolledUpMetrics: RunMetrics;
+}
+
+export interface WalkForwardRunOptions {
+  mode: "fixed" | "grid";
+  startUtc?: string;
+  endUtc?: string;
+  trainDays: number;
+  validationDays: number;
+  testDays: number;
+  stepDays: number;
+}
