@@ -12,6 +12,7 @@ export type Timeframe = "1m" | "5m" | "15m" | "1h";
 export type OrderStatus = "PENDING" | "OPEN" | "PARTIALLY_FILLED" | "FILLED" | "CANCELLED" | "CLOSED";
 export type EventType = "FOMC" | "CPI" | "EMPLOYMENT";
 export type StrategyId = "SessionFilteredTrendPullback_v1";
+export type TradeSource = "BACKTEST" | "PAPER";
 
 export interface Bar {
   symbol: string;
@@ -265,6 +266,44 @@ export interface RunMetrics {
   rejectedSignalCount: number;
   sessionBreakdown: Record<SessionLabel, SessionMetricsBreakdown>;
   sideBreakdown: Record<Side, SideMetricsBreakdown>;
+}
+
+export interface DailyPerformanceRow {
+  tradingDate: string;
+  tradeCount: number;
+  winRate: number;
+  netPnlUsd: number;
+  avgPnlUsd: number;
+}
+
+export interface SessionPerformanceRow {
+  sessionLabel: SessionLabel;
+  tradeCount: number;
+  winRate: number;
+  netPnlUsd: number;
+  avgPnlUsd: number;
+  avgWinUsd: number;
+  avgLossUsd: number;
+}
+
+export interface PaperReportArtifact {
+  generatedAtUtc: string;
+  symbol: string;
+  strategyId: StrategyId;
+  source: TradeSource;
+  run: {
+    startUtc: string;
+    endUtc: string | null;
+    processedThroughUtc: string | null;
+    newTradeCount: number;
+    rejectedSignalCount: number;
+    artifactVersion: string;
+  };
+  activePosition: PersistedPaperState["activePosition"];
+  runMetrics: RunMetrics;
+  cumulativeMetrics: RunMetrics;
+  dailyPerformance: DailyPerformanceRow[];
+  sessionPerformance: SessionPerformanceRow[];
 }
 
 export interface WalkForwardWindow {

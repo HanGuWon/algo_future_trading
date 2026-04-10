@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Bar, EventWindow, PersistedPaperState, Timeframe, TradeRecord } from "../types.js";
+import type { Bar, EventWindow, PersistedPaperState, Timeframe, TradeRecord, TradeSource } from "../types.js";
 
 export class SqliteStore {
   private readonly db: DatabaseSync;
@@ -54,7 +54,8 @@ export class SqliteStore {
         slippage_usd REAL NOT NULL,
         pnl_usd REAL NOT NULL,
         exit_reason TEXT NOT NULL,
-        version TEXT NOT NULL
+        version TEXT NOT NULL,
+        trade_source TEXT NOT NULL DEFAULT 'BACKTEST'
       );
       CREATE TABLE IF NOT EXISTS paper_state (
         strategy_id TEXT NOT NULL,
@@ -65,6 +66,7 @@ export class SqliteStore {
         PRIMARY KEY (strategy_id, symbol)
       );
     `);
+    this.ensureTradeSourceColumn();
   }
 
   insertBars(timeframe: Timeframe, bars: Bar[]): void {
@@ -159,12 +161,12 @@ export class SqliteStore {
     }));
   }
 
-  insertTrades(trades: TradeRecord[]): void {
+  insertTrades(trades: TradeRecord[], source: TradeSource = "BACKTEST"): void {
     const statement = this.db.prepare(`
       INSERT OR REPLACE INTO trades (
         id, strategy_id, symbol, contract, side, qty, entry_ts, exit_ts, entry_px, exit_px,
-        stop_px, target_px, fees_usd, slippage_usd, pnl_usd, exit_reason, version
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        stop_px, target_px, fees_usd, slippage_usd, pnl_usd, exit_reason, version, trade_source
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const trade of trades) {
       statement.run(
@@ -184,9 +186,67 @@ export class SqliteStore {
         trade.slippageUsd,
         trade.pnlUsd,
         trade.exitReason,
-        trade.version
+        trade.version,
+        source
       );
     }
+  }
+
+  getTrades(filters?: {
+    strategyId?: string;
+    symbol?: string;
+    source?: TradeSource;
+    startUtc?: string;
+    endUtc?: string;
+  }): TradeRecord[] {
+    const clauses = ["1 = 1"];
+    const params: Array<string | number> = [];
+    if (filters?.strategyId) {
+      clauses.push("strategy_id = ?");
+      params.push(filters.strategyId);
+    }
+    if (filters?.symbol) {
+      clauses.push("symbol = ?");
+      params.push(filters.symbol);
+    }
+    if (filters?.source) {
+      clauses.push("trade_source = ?");
+      params.push(filters.source);
+    }
+    if (filters?.startUtc) {
+      clauses.push("exit_ts >= ?");
+      params.push(filters.startUtc);
+    }
+    if (filters?.endUtc) {
+      clauses.push("exit_ts <= ?");
+      params.push(filters.endUtc);
+    }
+    const statement = this.db.prepare(`
+      SELECT id, strategy_id, symbol, contract, side, qty, entry_ts, exit_ts, entry_px, exit_px,
+             stop_px, target_px, fees_usd, slippage_usd, pnl_usd, exit_reason, version
+      FROM trades
+      WHERE ${clauses.join(" AND ")}
+      ORDER BY exit_ts ASC, id ASC
+    `);
+    return statement.all(...params).map((row) => ({
+      id: String(row.id),
+      strategyId: row.strategy_id as TradeRecord["strategyId"],
+      symbol: String(row.symbol),
+      contract: String(row.contract),
+      side: row.side as TradeRecord["side"],
+      qty: Number(row.qty),
+      entryTs: String(row.entry_ts),
+      exitTs: String(row.exit_ts),
+      entryPx: Number(row.entry_px),
+      exitPx: Number(row.exit_px),
+      stopPx: Number(row.stop_px),
+      targetPx: Number(row.target_px),
+      feesUsd: Number(row.fees_usd),
+      slippageUsd: Number(row.slippage_usd),
+      pnlUsd: Number(row.pnl_usd),
+      exitReason: row.exit_reason as TradeRecord["exitReason"],
+      version: String(row.version)
+    }));
   }
 
   getPaperState(strategyId: string, symbol: string): PersistedPaperState | null {
@@ -219,5 +279,14 @@ export class SqliteStore {
 
   close(): void {
     this.db.close();
+  }
+
+  private ensureTradeSourceColumn(): void {
+    const statement = this.db.prepare(`PRAGMA table_info(trades)`);
+    const columns = statement.all() as Array<{ name?: string }>;
+    if (columns.some((column) => column.name === "trade_source")) {
+      return;
+    }
+    this.db.exec(`ALTER TABLE trades ADD COLUMN trade_source TEXT NOT NULL DEFAULT 'BACKTEST'`);
   }
 }

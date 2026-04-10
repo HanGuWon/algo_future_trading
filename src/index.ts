@@ -8,6 +8,7 @@ export * from "./features/featureEngine.js";
 export * from "./features/sessionState.js";
 export * from "./paper/paperBroker.js";
 export * from "./paper/paperEngine.js";
+export * from "./reporting/paperArtifacts.js";
 export * from "./research/parameterGrid.js";
 export * from "./research/walkforward.js";
 export * from "./risk/riskEngine.js";

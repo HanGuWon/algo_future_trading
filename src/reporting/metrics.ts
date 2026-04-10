@@ -1,5 +1,13 @@
-import type { BacktestResult, RunMetrics, SessionLabel, Side } from "../types.js";
-import { getSessionLabelChicago } from "../utils/time.js";
+import type {
+  BacktestResult,
+  DailyPerformanceRow,
+  RunMetrics,
+  SessionLabel,
+  SessionPerformanceRow,
+  Side,
+  TradeRecord
+} from "../types.js";
+import { getSessionLabelChicago, getTradingDateChicago } from "../utils/time.js";
 
 function emptySessionBreakdown(): RunMetrics["sessionBreakdown"] {
   return {
@@ -148,6 +156,95 @@ export function summarizeMetrics(metrics: RunMetrics): string[] {
     `Max drawdown: ${metrics.maxDrawdownUsd.toFixed(2)} USD`,
     `Rejected signals: ${metrics.rejectedSignalCount}`
   ];
+}
+
+export function buildDailyPerformanceRows(trades: TradeRecord[]): DailyPerformanceRow[] {
+  const rows = new Map<string, { tradeCount: number; wins: number; netPnlUsd: number }>();
+  for (const trade of trades) {
+    const tradingDate = getTradingDateChicago(trade.exitTs);
+    const current = rows.get(tradingDate) ?? { tradeCount: 0, wins: 0, netPnlUsd: 0 };
+    current.tradeCount += 1;
+    current.wins += trade.pnlUsd > 0 ? 1 : 0;
+    current.netPnlUsd += trade.pnlUsd;
+    rows.set(tradingDate, current);
+  }
+
+  return [...rows.entries()]
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .map(([tradingDate, item]) => ({
+      tradingDate,
+      tradeCount: item.tradeCount,
+      winRate: item.tradeCount > 0 ? (item.wins / item.tradeCount) * 100 : 0,
+      netPnlUsd: item.netPnlUsd,
+      avgPnlUsd: item.tradeCount > 0 ? item.netPnlUsd / item.tradeCount : 0
+    }));
+}
+
+export function buildSessionPerformanceRows(trades: TradeRecord[]): SessionPerformanceRow[] {
+  const rows = new Map<
+    SessionLabel,
+    { tradeCount: number; wins: number; netPnlUsd: number; grossWinUsd: number; grossLossUsd: number; lossCount: number; winCount: number }
+  >();
+
+  for (const sessionLabel of ["ASIA", "EUROPE", "US", "CLOSED"] as SessionLabel[]) {
+    rows.set(sessionLabel, {
+      tradeCount: 0,
+      wins: 0,
+      netPnlUsd: 0,
+      grossWinUsd: 0,
+      grossLossUsd: 0,
+      lossCount: 0,
+      winCount: 0
+    });
+  }
+
+  for (const trade of trades) {
+    const sessionLabel = getSessionLabelChicago(trade.entryTs) as SessionLabel;
+    const current = rows.get(sessionLabel)!;
+    current.tradeCount += 1;
+    current.netPnlUsd += trade.pnlUsd;
+    if (trade.pnlUsd > 0) {
+      current.wins += 1;
+      current.winCount += 1;
+      current.grossWinUsd += trade.pnlUsd;
+    } else if (trade.pnlUsd < 0) {
+      current.lossCount += 1;
+      current.grossLossUsd += trade.pnlUsd;
+    }
+  }
+
+  return (["ASIA", "EUROPE", "US", "CLOSED"] as SessionLabel[]).map((sessionLabel) => {
+    const item = rows.get(sessionLabel)!;
+    return {
+      sessionLabel,
+      tradeCount: item.tradeCount,
+      winRate: item.tradeCount > 0 ? (item.wins / item.tradeCount) * 100 : 0,
+      netPnlUsd: item.netPnlUsd,
+      avgPnlUsd: item.tradeCount > 0 ? item.netPnlUsd / item.tradeCount : 0,
+      avgWinUsd: item.winCount > 0 ? item.grossWinUsd / item.winCount : 0,
+      avgLossUsd: item.lossCount > 0 ? item.grossLossUsd / item.lossCount : 0
+    };
+  });
+}
+
+export function summarizePerformanceRows(dailyRows: DailyPerformanceRow[], sessionRows: SessionPerformanceRow[]): string[] {
+  const latestDay = dailyRows[dailyRows.length - 1];
+  const bestSession = [...sessionRows]
+    .filter((row) => row.tradeCount > 0)
+    .sort((left, right) => right.netPnlUsd - left.netPnlUsd)[0];
+
+  const lines: string[] = [];
+  if (latestDay) {
+    lines.push(
+      `Latest day: ${latestDay.tradingDate} | trades ${latestDay.tradeCount} | net ${latestDay.netPnlUsd.toFixed(2)} USD | win rate ${latestDay.winRate.toFixed(2)}%`
+    );
+  }
+  if (bestSession) {
+    lines.push(
+      `Best session: ${bestSession.sessionLabel} | trades ${bestSession.tradeCount} | net ${bestSession.netPnlUsd.toFixed(2)} USD | avg ${bestSession.avgPnlUsd.toFixed(2)} USD`
+    );
+  }
+  return lines;
 }
 
 export function mergeBacktestResults(parts: Pick<BacktestResult, "trades" | "rejectedSignals">[]): Pick<BacktestResult, "trades" | "rejectedSignals"> {

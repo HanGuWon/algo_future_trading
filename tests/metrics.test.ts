@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeRunMetrics } from "../src/reporting/metrics.js";
+import { buildDailyPerformanceRows, buildSessionPerformanceRows, computeRunMetrics } from "../src/reporting/metrics.js";
 import type { BacktestResult } from "../src/types.js";
 
 describe("run metrics", () => {
@@ -64,5 +64,14 @@ describe("run metrics", () => {
     expect(metrics.rejectedSignalCount).toBe(1);
     expect(metrics.sideBreakdown.BUY.tradeCount).toBe(1);
     expect(metrics.sideBreakdown.SELL.tradeCount).toBe(1);
+
+    const dailyRows = buildDailyPerformanceRows(result.trades);
+    expect(dailyRows).toHaveLength(1);
+    expect(dailyRows[0]?.tradingDate).toBe("2026-01-05");
+    expect(dailyRows[0]?.netPnlUsd).toBe(57);
+
+    const sessionRows = buildSessionPerformanceRows(result.trades);
+    expect(sessionRows.find((row) => row.sessionLabel === "EUROPE")?.tradeCount).toBe(1);
+    expect(sessionRows.find((row) => row.sessionLabel === "US")?.tradeCount).toBe(1);
   });
 });

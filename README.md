@@ -44,4 +44,10 @@ npm run ingest -- --file path/to/mnq_1m.csv --db data/mnq-research.sqlite --cont
 - `backtest` runs one config once; `walkforward` runs rolling train/validation/test windows and writes JSON artifacts.
 - `paper` now keeps persistent account and order state in SQLite `paper_state` and resumes from the prior run.
 - `paper` processes newly available bars only logically; it does not open duplicate signals once `lastProcessedSignalTs` has advanced.
+- `paper` writes JSON report artifacts under `artifacts/paper/` by default, including:
+  - current run metrics
+  - cumulative paper metrics
+  - daily realized performance rows
+  - session-level performance rows
+- `trades` are now tagged with a source so cumulative paper reports only use `PAPER` trades, not backtest inserts.
 - Walk-forward artifacts are written under `artifacts/` by default and are ignored by git.

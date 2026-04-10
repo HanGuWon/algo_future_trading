@@ -15,7 +15,14 @@ import {
 } from "../config/defaults.js";
 import { aggregateBars, parseCsvBarsDetailed } from "../data/barAggregation.js";
 import { PaperEngine } from "../paper/paperEngine.js";
-import { summarizeMetrics } from "../reporting/metrics.js";
+import { writePaperArtifact } from "../reporting/paperArtifacts.js";
+import {
+  buildDailyPerformanceRows,
+  buildSessionPerformanceRows,
+  computeRunMetrics,
+  summarizeMetrics,
+  summarizePerformanceRows
+} from "../reporting/metrics.js";
 import { WalkForwardRunner } from "../research/walkforward.js";
 import { SqliteStore } from "../storage/sqliteStore.js";
 
@@ -104,7 +111,7 @@ async function backtestCommand(
     const eventWindows = store.getEventWindows(start, end);
     const engine = new BacktestEngine(DEFAULT_STRATEGY_CONFIG, MNQ_SPEC, DEFAULT_ACCOUNT_EQUITY_USD);
     const result = engine.run(bars1m, eventWindows);
-    store.insertTrades(result.trades);
+    store.insertTrades(result.trades, "BACKTEST");
     const grossPnl = result.trades.reduce((sum, trade) => sum + trade.pnlUsd, 0);
     const wins = result.trades.filter((trade) => trade.pnlUsd > 0).length;
     const winRate = result.trades.length > 0 ? (wins / result.trades.length) * 100 : 0;
@@ -138,14 +145,60 @@ async function paperCommand(options: Map<string, string>, logger: Pick<Console, 
       priorState?.paperStartUtc ?? start
     );
     const result = engine.run(bars1m, eventWindows, priorState);
-    store.insertTrades(result.trades);
+    store.insertTrades(result.trades, "PAPER");
     store.upsertPaperState(result.finalState);
+    const cumulativeTrades = store.getTrades({
+      strategyId: DEFAULT_STRATEGY_CONFIG.strategyId,
+      symbol: MNQ_SPEC.symbol,
+      source: "PAPER",
+      startUtc: result.finalState.paperStartUtc,
+      endUtc: result.finalState.processedThroughUtc ?? undefined
+    });
+    const runMetrics = computeRunMetrics({
+      trades: result.trades,
+      rejectedSignals: result.rejectedSignals
+    });
+    const cumulativeMetrics = computeRunMetrics({
+      trades: cumulativeTrades,
+      rejectedSignals: []
+    });
+    const dailyPerformance = buildDailyPerformanceRows(cumulativeTrades);
+    const sessionPerformance = buildSessionPerformanceRows(cumulativeTrades);
+    const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
+    const artifactPath = await writePaperArtifact(
+      {
+        generatedAtUtc: new Date().toISOString(),
+        symbol: MNQ_SPEC.symbol,
+        strategyId: DEFAULT_STRATEGY_CONFIG.strategyId,
+        source: "PAPER",
+        run: {
+          startUtc: priorState?.processedThroughUtc ?? result.finalState.paperStartUtc,
+          endUtc: end ?? null,
+          processedThroughUtc: result.finalState.processedThroughUtc,
+          newTradeCount: result.trades.length,
+          rejectedSignalCount: result.rejectedSignals.length,
+          artifactVersion: "0.1.0"
+        },
+        activePosition: result.finalState.activePosition,
+        runMetrics,
+        cumulativeMetrics,
+        dailyPerformance,
+        sessionPerformance
+      },
+      artifactsDir
+    );
 
     logger.log("Paper run complete");
-    logger.log(`New trades: ${result.trades.length}`);
-    logger.log(`Rejected signals: ${result.rejectedSignals.length}`);
+    logger.log(`New trades: ${runMetrics.tradeCount}`);
+    logger.log(`Rejected signals: ${runMetrics.rejectedSignalCount}`);
     logger.log(`Final equity: ${result.finalState.accountState.equityUsd.toFixed(2)} USD`);
     logger.log(`Processed through: ${result.finalState.processedThroughUtc ?? "n/a"}`);
+    for (const line of summarizeMetrics(cumulativeMetrics)) {
+      logger.log(`Cumulative ${line}`);
+    }
+    for (const line of summarizePerformanceRows(dailyPerformance, sessionPerformance)) {
+      logger.log(line);
+    }
     if (result.finalState.activePosition) {
       logger.log(
         `Active position: ${result.finalState.activePosition.status} ${result.finalState.activePosition.side} ${result.finalState.activePosition.remainingQty} @ ${result.finalState.activePosition.entryPx.toFixed(2)}`
@@ -153,6 +206,7 @@ async function paperCommand(options: Map<string, string>, logger: Pick<Console, 
     } else {
       logger.log("Active position: none");
     }
+    logger.log(`Artifact: ${artifactPath}`);
   } finally {
     store.close();
   }
