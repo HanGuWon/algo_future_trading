@@ -1,0 +1,7 @@
+{
+  "maFast": 30,
+  "maSlow": 120,
+  "confluenceThreshold": 4,
+  "riskPctPerTrade": 0.002,
+  "eventBlackoutMinutesAfter": 120
+}

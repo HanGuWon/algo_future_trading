@@ -9,10 +9,11 @@ import {
   DEFAULT_ACCOUNT_EQUITY_USD,
   DEFAULT_ARTIFACTS_DIR,
   DEFAULT_DB_PATH,
-  DEFAULT_STRATEGY_CONFIG,
+  DEFAULT_STRATEGY_CONFIG_PATH,
   DEFAULT_WALKFORWARD_DAYS,
   MNQ_SPEC
 } from "../config/defaults.js";
+import { describeStrategyConfig, loadStrategyConfig } from "../config/strategyLoader.js";
 import { aggregateBars, parseCsvBarsDetailed } from "../data/barAggregation.js";
 import { PaperEngine } from "../paper/paperEngine.js";
 import { writeArtifactIndex } from "../reporting/artifactIndex.js";
@@ -52,6 +53,17 @@ function getNumberOption(options: Map<string, string>, key: string, fallback: nu
   return raw === undefined ? fallback : Number(raw);
 }
 
+async function loadCliStrategyContext(
+  options: Map<string, string>
+): Promise<{ configPath: string; config: Awaited<ReturnType<typeof loadStrategyConfig>>["config"] }> {
+  const configPath = options.get("config") ?? DEFAULT_STRATEGY_CONFIG_PATH;
+  const loaded = await loadStrategyConfig(configPath);
+  return {
+    configPath: loaded.resolvedPath,
+    config: loaded.config
+  };
+}
+
 async function ingestCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
   const file = options.get("file");
   if (!file) {
@@ -85,8 +97,9 @@ async function ingestCommand(options: Map<string, string>, logger: Pick<Console,
 
 async function syncCalendarsCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
   const outputPath = options.get("out") ?? CALENDAR_SEED_PATH;
+  const strategy = await loadCliStrategyContext(options);
   await mkdir(dirname(outputPath), { recursive: true });
-  const provider = new OfficialCalendarProvider(DEFAULT_STRATEGY_CONFIG);
+  const provider = new OfficialCalendarProvider(strategy.config);
   const windows = await provider.syncToFile(outputPath);
   if (options.get("db")) {
     const store = new SqliteStore(options.get("db")!);
@@ -96,6 +109,8 @@ async function syncCalendarsCommand(options: Map<string, string>, logger: Pick<C
       store.close();
     }
   }
+  logger.log(`Config: ${strategy.configPath}`);
+  logger.log(`Strategy params: ${describeStrategyConfig(strategy.config)}`);
   logger.log(`Synced ${windows.length} official event windows to ${outputPath}`);
 }
 
@@ -104,6 +119,7 @@ async function backtestCommand(
   logger: Pick<Console, "log"> = console
 ): Promise<void> {
   const dbPath = options.get("db") ?? DEFAULT_DB_PATH;
+  const strategy = await loadCliStrategyContext(options);
   const store = new SqliteStore(dbPath);
   try {
     const start = options.get("start");
@@ -113,13 +129,15 @@ async function backtestCommand(
       throw new Error(`No 1m MNQ bars found in ${dbPath}. Run ingest first.`);
     }
     const eventWindows = store.getEventWindows(start, end);
-    const engine = new BacktestEngine(DEFAULT_STRATEGY_CONFIG, MNQ_SPEC, DEFAULT_ACCOUNT_EQUITY_USD);
+    const engine = new BacktestEngine(strategy.config, MNQ_SPEC, DEFAULT_ACCOUNT_EQUITY_USD);
     const result = engine.run(bars1m, eventWindows);
     store.insertTrades(result.trades, "BACKTEST");
     const grossPnl = result.trades.reduce((sum, trade) => sum + trade.pnlUsd, 0);
     const wins = result.trades.filter((trade) => trade.pnlUsd > 0).length;
     const winRate = result.trades.length > 0 ? (wins / result.trades.length) * 100 : 0;
     logger.log("Backtest complete");
+    logger.log(`Config: ${strategy.configPath}`);
+    logger.log(`Strategy params: ${describeStrategyConfig(strategy.config)}`);
     logger.log(`Trades: ${result.trades.length}`);
     logger.log(`Rejected signals: ${result.rejectedSignals.length}`);
     logger.log(`Win rate: ${winRate.toFixed(2)}%`);
@@ -132,6 +150,7 @@ async function backtestCommand(
 
 async function paperCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
   const dbPath = options.get("db") ?? DEFAULT_DB_PATH;
+  const strategy = await loadCliStrategyContext(options);
   const store = new SqliteStore(dbPath);
   try {
     const start = options.get("start") ?? ACCEPTANCE_SPLIT.paperStart;
@@ -141,9 +160,9 @@ async function paperCommand(options: Map<string, string>, logger: Pick<Console, 
       throw new Error(`No 1m MNQ bars found in ${dbPath} for paper mode. Run ingest first.`);
     }
     const eventWindows = store.getEventWindows(start, end);
-    const priorState = store.getPaperState(DEFAULT_STRATEGY_CONFIG.strategyId, MNQ_SPEC.symbol);
+    const priorState = store.getPaperState(strategy.config.strategyId, MNQ_SPEC.symbol);
     const engine = new PaperEngine(
-      DEFAULT_STRATEGY_CONFIG,
+      strategy.config,
       MNQ_SPEC,
       DEFAULT_ACCOUNT_EQUITY_USD,
       priorState?.paperStartUtc ?? start
@@ -152,7 +171,7 @@ async function paperCommand(options: Map<string, string>, logger: Pick<Console, 
     store.insertTrades(result.trades, "PAPER");
     store.upsertPaperState(result.finalState);
     const cumulativeTrades = store.getTrades({
-      strategyId: DEFAULT_STRATEGY_CONFIG.strategyId,
+      strategyId: strategy.config.strategyId,
       symbol: MNQ_SPEC.symbol,
       source: "PAPER",
       startUtc: result.finalState.paperStartUtc,
@@ -173,7 +192,7 @@ async function paperCommand(options: Map<string, string>, logger: Pick<Console, 
       {
         generatedAtUtc: new Date().toISOString(),
         symbol: MNQ_SPEC.symbol,
-        strategyId: DEFAULT_STRATEGY_CONFIG.strategyId,
+        strategyId: strategy.config.strategyId,
         source: "PAPER",
         run: {
           startUtc: priorState?.processedThroughUtc ?? result.finalState.paperStartUtc,
@@ -193,6 +212,8 @@ async function paperCommand(options: Map<string, string>, logger: Pick<Console, 
     );
 
     logger.log("Paper run complete");
+    logger.log(`Config: ${strategy.configPath}`);
+    logger.log(`Strategy params: ${describeStrategyConfig(strategy.config)}`);
     logger.log(`New trades: ${runMetrics.tradeCount}`);
     logger.log(`Rejected signals: ${runMetrics.rejectedSignalCount}`);
     logger.log(`Final equity: ${result.finalState.accountState.equityUsd.toFixed(2)} USD`);
@@ -219,6 +240,7 @@ async function paperCommand(options: Map<string, string>, logger: Pick<Console, 
 
 async function walkforwardCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
   const dbPath = options.get("db") ?? DEFAULT_DB_PATH;
+  const strategy = await loadCliStrategyContext(options);
   const store = new SqliteStore(dbPath);
   try {
     const start = options.get("start");
@@ -229,20 +251,28 @@ async function walkforwardCommand(options: Map<string, string>, logger: Pick<Con
     }
     const eventWindows = store.getEventWindows(start, end);
     const mode = options.get("mode") === "fixed" ? "fixed" : "grid";
-    const runner = new WalkForwardRunner(bars1m, eventWindows, {
-      mode,
-      startUtc: start,
-      endUtc: end,
-      trainDays: getNumberOption(options, "train-days", DEFAULT_WALKFORWARD_DAYS.trainDays),
-      validationDays: getNumberOption(options, "validation-days", DEFAULT_WALKFORWARD_DAYS.validationDays),
-      testDays: getNumberOption(options, "test-days", DEFAULT_WALKFORWARD_DAYS.testDays),
-      stepDays: getNumberOption(options, "step-days", DEFAULT_WALKFORWARD_DAYS.stepDays)
-    });
+    const runner = new WalkForwardRunner(
+      bars1m,
+      eventWindows,
+      {
+        mode,
+        startUtc: start,
+        endUtc: end,
+        trainDays: getNumberOption(options, "train-days", DEFAULT_WALKFORWARD_DAYS.trainDays),
+        validationDays: getNumberOption(options, "validation-days", DEFAULT_WALKFORWARD_DAYS.validationDays),
+        testDays: getNumberOption(options, "test-days", DEFAULT_WALKFORWARD_DAYS.testDays),
+        stepDays: getNumberOption(options, "step-days", DEFAULT_WALKFORWARD_DAYS.stepDays)
+      },
+      undefined,
+      strategy.config
+    );
     const artifact = runner.run();
     const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
     const artifactPaths = await writeWalkForwardArtifacts(artifact, artifactsDir);
 
     logger.log(`Walk-forward complete (${artifact.mode})`);
+    logger.log(`Config: ${strategy.configPath}`);
+    logger.log(`Strategy params: ${describeStrategyConfig(strategy.config)}`);
     logger.log(`Windows: ${artifact.windows.length}`);
     logger.log(`Selected windows: ${artifact.windows.filter((window) => window.status === "selected").length}`);
     for (const line of summarizeMetrics(artifact.rolledUpMetrics)) {
@@ -257,6 +287,7 @@ async function walkforwardCommand(options: Map<string, string>, logger: Pick<Con
 
 async function researchCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
   const dbPath = options.get("db") ?? DEFAULT_DB_PATH;
+  const strategy = await loadCliStrategyContext(options);
   const store = new SqliteStore(dbPath);
   try {
     const bars1m = store.getBars("MNQ", "1m", ACCEPTANCE_SPLIT.trainStart, ACCEPTANCE_SPLIT.testEnd);
@@ -264,12 +295,16 @@ async function researchCommand(options: Map<string, string>, logger: Pick<Consol
       throw new Error(`No 1m MNQ bars found in ${dbPath} for research mode. Run ingest first.`);
     }
     const eventWindows = store.getEventWindows(ACCEPTANCE_SPLIT.trainStart, ACCEPTANCE_SPLIT.testEnd);
-    const runner = new ResearchReportRunner(bars1m, eventWindows);
+    const runner = new ResearchReportRunner(bars1m, eventWindows, {
+      baseConfig: strategy.config
+    });
     const artifact = runner.run();
     const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
     const artifactPaths = await writeResearchArtifact(artifact, artifactsDir);
 
     logger.log("Research report complete");
+    logger.log(`Config: ${strategy.configPath}`);
+    logger.log(`Strategy params: ${describeStrategyConfig(strategy.config)}`);
     logger.log(`Baseline acceptance: test expectancy ${artifact.baseline.test.metrics.expectancyUsd.toFixed(2)} USD`);
     logger.log(
       `Walk-forward OOS: ${artifact.walkforward.selectedWindowCount}/${artifact.walkforward.windowCount} windows selected`
@@ -337,6 +372,7 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
     default:
       logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper");
       logger.log('ingest options: --file <csv> [--db path] [--symbol MNQ] [--contract H26]');
+      logger.log(`strategy options: [--config ${DEFAULT_STRATEGY_CONFIG_PATH}]`);
   }
 }
 

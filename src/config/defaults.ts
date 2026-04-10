@@ -37,6 +37,7 @@ export const DEFAULT_ACCOUNT_EQUITY_USD = 25_000;
 export const DEFAULT_DB_PATH = "data/mnq-research.sqlite";
 export const CALENDAR_SEED_PATH = "data/calendars/official-events.json";
 export const DEFAULT_ARTIFACTS_DIR = "artifacts";
+export const DEFAULT_STRATEGY_CONFIG_PATH = "config/strategies/session-filtered-trend-pullback-v1.json";
 export const ACCEPTANCE_SPLIT = {
   trainStart: "2018-01-01T00:00:00.000Z",
   trainEnd: "2021-12-31T23:59:59.999Z",

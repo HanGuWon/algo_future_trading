@@ -1,0 +1,22 @@
+{
+  "strategyId": "SessionFilteredTrendPullback_v1",
+  "signalTimeframe": "1h",
+  "executionTimeframe": "5m",
+  "trailingTimeframe": "15m",
+  "maFast": 20,
+  "maSlow": 120,
+  "bollingerPeriod": 20,
+  "bollingerStdDev": 2,
+  "confluenceThreshold": 3,
+  "riskPctPerTrade": 0.0025,
+  "maxDailyLossPct": 0.01,
+  "maxConsecutiveLosses": 3,
+  "cooldownMinutes": 30,
+  "commissionPerContractUsd": 1.14,
+  "defaultSlippageTicks": 1,
+  "usOpenSlippageTicks": 2,
+  "europeTradableMinutes": 90,
+  "usTradableMinutes": 120,
+  "eventBlackoutMinutesBefore": 30,
+  "eventBlackoutMinutesAfter": 60
+}

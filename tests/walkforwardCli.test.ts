@@ -35,6 +35,8 @@ describe("walk-forward CLI", () => {
         "walkforward",
         "--db",
         "mock.sqlite",
+        "--config",
+        "config/strategies/session-filtered-trend-pullback-v1.research-tight.json",
         "--mode",
         "fixed",
         "--train-days",
@@ -56,6 +58,8 @@ describe("walk-forward CLI", () => {
     );
 
     expect(output.some((line) => line.includes("Walk-forward complete"))).toBe(true);
+    expect(output.some((line) => line.includes("Config:"))).toBe(true);
+    expect(output.some((line) => line.includes("Strategy params: fast=30 slow=120 score=4 postEvent=120"))).toBe(true);
     expect(output.some((line) => line.includes("Artifact JSON:"))).toBe(true);
     expect(output.some((line) => line.includes("Artifact Markdown:"))).toBe(true);
   });

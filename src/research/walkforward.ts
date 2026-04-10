@@ -12,6 +12,7 @@ import type {
   EventWindow,
   ParameterCandidate,
   RunMetrics,
+  StrategyConfig,
   WalkForwardArtifact,
   WalkForwardRunOptions,
   WalkForwardWindow,
@@ -116,7 +117,8 @@ export class WalkForwardRunner {
     private readonly bars: Bar[],
     private readonly eventWindows: EventWindow[],
     private readonly options: WalkForwardRunOptions,
-    private readonly candidatesOverride?: ParameterCandidate[]
+    private readonly candidatesOverride?: ParameterCandidate[],
+    private readonly baseConfig: StrategyConfig = DEFAULT_STRATEGY_CONFIG
   ) {}
 
   run(): WalkForwardArtifact {
@@ -125,8 +127,8 @@ export class WalkForwardRunner {
     const candidates =
       this.candidatesOverride ??
       (this.options.mode === "fixed"
-        ? buildFixedCandidate(DEFAULT_STRATEGY_CONFIG)
-        : buildSmallParameterGrid(DEFAULT_STRATEGY_CONFIG));
+        ? buildFixedCandidate(this.baseConfig)
+        : buildSmallParameterGrid(this.baseConfig));
     const results: WindowSelectionResult[] = windows.map((window) => this.runWindow(window, candidates));
 
     const selectedTestMetrics = results

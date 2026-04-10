@@ -7,7 +7,7 @@ import {
   MNQ_SPEC
 } from "../config/defaults.js";
 import { computeRunMetrics } from "../reporting/metrics.js";
-import { buildSmallParameterGrid } from "./parameterGrid.js";
+import { buildCandidateId, buildSmallParameterGrid } from "./parameterGrid.js";
 import { WalkForwardRunner } from "./walkforward.js";
 import { getTradingDateChicago } from "../utils/time.js";
 import type {
@@ -38,6 +38,7 @@ interface ResearchReportRunnerOptions {
   sensitivityTopCount?: number;
   sensitivityCandidates?: ParameterCandidate[];
   walkforwardCandidates?: ParameterCandidate[];
+  baseConfig?: StrategyConfig;
 }
 
 function defaultAcceptanceSplit(): AcceptanceSplitConfig {
@@ -300,6 +301,7 @@ export class ResearchReportRunner {
   private readonly sensitivityTopCount: number;
   private readonly sensitivityCandidates: ParameterCandidate[] | undefined;
   private readonly walkforwardCandidates: ParameterCandidate[] | undefined;
+  private readonly baseConfig: StrategyConfig;
 
   constructor(
     private readonly bars: Bar[],
@@ -307,6 +309,7 @@ export class ResearchReportRunner {
     options: ResearchReportRunnerOptions = {}
   ) {
     this.acceptanceSplit = options.acceptanceSplit ?? defaultAcceptanceSplit();
+    this.baseConfig = options.baseConfig ?? DEFAULT_STRATEGY_CONFIG;
     this.walkforwardOptions = options.walkforwardOptions ?? {
       mode: "grid",
       startUtc: this.acceptanceSplit.train.startUtc,
@@ -325,24 +328,25 @@ export class ResearchReportRunner {
     const baselineTrain: AcceptanceSliceResult = {
       slice: "train",
       range: this.acceptanceSplit.train,
-      metrics: runMetricsForRange(DEFAULT_STRATEGY_CONFIG, this.bars, this.eventWindows, this.acceptanceSplit.train)
+      metrics: runMetricsForRange(this.baseConfig, this.bars, this.eventWindows, this.acceptanceSplit.train)
     };
     const baselineValidation: AcceptanceSliceResult = {
       slice: "validation",
       range: this.acceptanceSplit.validation,
-      metrics: runMetricsForRange(DEFAULT_STRATEGY_CONFIG, this.bars, this.eventWindows, this.acceptanceSplit.validation)
+      metrics: runMetricsForRange(this.baseConfig, this.bars, this.eventWindows, this.acceptanceSplit.validation)
     };
     const baselineTest: AcceptanceSliceResult = {
       slice: "test",
       range: this.acceptanceSplit.test,
-      metrics: runMetricsForRange(DEFAULT_STRATEGY_CONFIG, this.bars, this.eventWindows, this.acceptanceSplit.test)
+      metrics: runMetricsForRange(this.baseConfig, this.bars, this.eventWindows, this.acceptanceSplit.test)
     };
 
     const walkforwardArtifact = new WalkForwardRunner(
       this.bars,
       this.eventWindows,
       this.walkforwardOptions,
-      this.walkforwardCandidates
+      this.walkforwardCandidates,
+      this.baseConfig
     ).run();
     const walkforwardSummary: ResearchReportArtifact["walkforward"] = {
       mode: walkforwardArtifact.mode,
@@ -357,7 +361,7 @@ export class ResearchReportRunner {
       }))
     };
 
-    const sensitivityCandidates = this.sensitivityCandidates ?? buildSmallParameterGrid(DEFAULT_STRATEGY_CONFIG);
+    const sensitivityCandidates = this.sensitivityCandidates ?? buildSmallParameterGrid(this.baseConfig);
     const rawSensitivityResults = sensitivityCandidates.map((candidate) => ({
       candidate,
       validationMetrics: runMetricsForRange(
@@ -369,7 +373,8 @@ export class ResearchReportRunner {
       testMetrics: runMetricsForRange(candidate.config, this.bars, this.eventWindows, this.acceptanceSplit.test)
     }));
 
-    const baselineSensitivity = rawSensitivityResults.find((result) => result.candidate.id === sensitivityCandidates.find((candidate) => candidate.id === "fast20_slow120_score3_post60")?.id)
+    const baselineCandidateId = buildCandidateId(this.baseConfig);
+    const baselineSensitivity = rawSensitivityResults.find((result) => result.candidate.id === sensitivityCandidates.find((candidate) => candidate.id === baselineCandidateId)?.id)
       ?? rawSensitivityResults.find((result) => result.candidate.id === sensitivityCandidates[0]?.id);
 
     const baselineValidationMetrics = baselineSensitivity?.validationMetrics ?? baselineValidation.metrics;
@@ -415,7 +420,7 @@ export class ResearchReportRunner {
 
     const eventRange = baselineEventComparisonRange(this.acceptanceSplit);
     const defaultEventMetrics = runMetricsForRange(
-      DEFAULT_STRATEGY_CONFIG,
+      this.baseConfig,
       this.bars,
       buildEventScenarioWindows("default", this.eventWindows, this.bars, eventRange),
       eventRange
@@ -425,7 +430,7 @@ export class ResearchReportRunner {
         scenario === "default"
           ? defaultEventMetrics
           : runMetricsForRange(
-              DEFAULT_STRATEGY_CONFIG,
+              this.baseConfig,
               this.bars,
               buildEventScenarioWindows(scenario, this.eventWindows, this.bars, eventRange),
               eventRange
@@ -452,7 +457,7 @@ export class ResearchReportRunner {
     return {
       generatedAtUtc: new Date().toISOString(),
       symbol: MNQ_SPEC.symbol,
-      strategyId: DEFAULT_STRATEGY_CONFIG.strategyId,
+      strategyId: this.baseConfig.strategyId,
       baseline: {
         train: baselineTrain,
         validation: baselineValidation,

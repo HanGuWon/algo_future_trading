@@ -2,6 +2,7 @@ export * from "./backtest/engine.js";
 export * from "./calendars/eventWindows.js";
 export * from "./calendars/officialCalendarProvider.js";
 export * from "./config/defaults.js";
+export * from "./config/strategyLoader.js";
 export * from "./data/barAggregation.js";
 export * from "./data/rolls.js";
 export * from "./features/featureEngine.js";
