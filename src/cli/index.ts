@@ -1,0 +1,104 @@
+import { mkdir, readFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { BacktestEngine } from "../backtest/engine.js";
+import { OfficialCalendarProvider } from "../calendars/officialCalendarProvider.js";
+import { DEFAULT_ACCOUNT_EQUITY_USD, DEFAULT_DB_PATH, DEFAULT_STRATEGY_CONFIG, CALENDAR_SEED_PATH, MNQ_SPEC } from "../config/defaults.js";
+import { aggregateBars, parseCsvBars } from "../data/barAggregation.js";
+import { SqliteStore } from "../storage/sqliteStore.js";
+
+function parseArgs(argv: string[]): Map<string, string> {
+  const options = new Map<string, string>();
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (!token.startsWith("--")) {
+      continue;
+    }
+    const key = token.slice(2);
+    const value = argv[index + 1] && !argv[index + 1].startsWith("--") ? argv[index + 1] : "true";
+    options.set(key, value);
+    if (value !== "true") {
+      index += 1;
+    }
+  }
+  return options;
+}
+
+async function ingestCommand(options: Map<string, string>): Promise<void> {
+  const file = options.get("file");
+  if (!file) {
+    throw new Error("ingest requires --file <csv>");
+  }
+  const dbPath = options.get("db") ?? DEFAULT_DB_PATH;
+  const symbol = options.get("symbol") ?? "MNQ";
+  const raw = await readFile(file, "utf8");
+  const bars1m = parseCsvBars(raw, symbol);
+  const store = new SqliteStore(dbPath);
+  store.insertBars("1m", bars1m);
+  store.insertBars("5m", aggregateBars(bars1m, "5m"));
+  store.insertBars("15m", aggregateBars(bars1m, "15m"));
+  store.insertBars("1h", aggregateBars(bars1m, "1h"));
+  console.log(`Ingested ${bars1m.length} raw 1m bars into ${dbPath}`);
+}
+
+async function syncCalendarsCommand(options: Map<string, string>): Promise<void> {
+  const outputPath = options.get("out") ?? CALENDAR_SEED_PATH;
+  await mkdir(dirname(outputPath), { recursive: true });
+  const provider = new OfficialCalendarProvider(DEFAULT_STRATEGY_CONFIG);
+  const windows = await provider.syncToFile(outputPath);
+  if (options.get("db")) {
+    const store = new SqliteStore(options.get("db")!);
+    store.insertEventWindows(windows);
+  }
+  console.log(`Synced ${windows.length} official event windows to ${outputPath}`);
+}
+
+async function backtestCommand(options: Map<string, string>, paperMode = false): Promise<void> {
+  const dbPath = options.get("db") ?? DEFAULT_DB_PATH;
+  const store = new SqliteStore(dbPath);
+  const start = options.get("start");
+  const end = options.get("end");
+  const bars1m = store.getBars("MNQ", "1m", start, end);
+  if (bars1m.length === 0) {
+    throw new Error(`No 1m MNQ bars found in ${dbPath}. Run ingest first.`);
+  }
+  const eventWindows = store.getEventWindows(start, end);
+  const engine = new BacktestEngine(DEFAULT_STRATEGY_CONFIG, MNQ_SPEC, DEFAULT_ACCOUNT_EQUITY_USD);
+  const result = engine.run(bars1m, eventWindows);
+  store.insertTrades(result.trades);
+  const grossPnl = result.trades.reduce((sum, trade) => sum + trade.pnlUsd, 0);
+  const wins = result.trades.filter((trade) => trade.pnlUsd > 0).length;
+  const winRate = result.trades.length > 0 ? (wins / result.trades.length) * 100 : 0;
+  console.log(`${paperMode ? "Paper" : "Backtest"} complete`);
+  console.log(`Trades: ${result.trades.length}`);
+  console.log(`Rejected signals: ${result.rejectedSignals.length}`);
+  console.log(`Win rate: ${winRate.toFixed(2)}%`);
+  console.log(`Net PnL: ${grossPnl.toFixed(2)} USD`);
+  console.log(`Final equity: ${result.finalAccountState.equityUsd.toFixed(2)} USD`);
+}
+
+async function main(): Promise<void> {
+  const [command = "help", ...rest] = process.argv.slice(2);
+  const options = parseArgs(rest);
+  switch (command) {
+    case "ingest":
+      await ingestCommand(options);
+      return;
+    case "sync-calendars":
+      await syncCalendarsCommand(options);
+      return;
+    case "backtest":
+      await backtestCommand(options, false);
+      return;
+    case "paper":
+      await backtestCommand(options, true);
+      return;
+    default:
+      console.log("Commands: ingest, sync-calendars, backtest, paper");
+  }
+}
+
+main().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(message);
+  process.exitCode = 1;
+});
