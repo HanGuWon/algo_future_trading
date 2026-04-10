@@ -15,8 +15,10 @@ import {
 } from "../config/defaults.js";
 import { aggregateBars, parseCsvBarsDetailed } from "../data/barAggregation.js";
 import { PaperEngine } from "../paper/paperEngine.js";
+import { writeArtifactIndex } from "../reporting/artifactIndex.js";
 import { writePaperArtifact } from "../reporting/paperArtifacts.js";
 import { writeResearchArtifact } from "../reporting/researchArtifacts.js";
+import { writeWalkForwardArtifacts } from "../reporting/walkforwardArtifacts.js";
 import {
   buildDailyPerformanceRows,
   buildSessionPerformanceRows,
@@ -238,7 +240,7 @@ async function walkforwardCommand(options: Map<string, string>, logger: Pick<Con
     });
     const artifact = runner.run();
     const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
-    const artifactPath = await runner.writeArtifact(artifact, artifactsDir);
+    const artifactPaths = await writeWalkForwardArtifacts(artifact, artifactsDir);
 
     logger.log(`Walk-forward complete (${artifact.mode})`);
     logger.log(`Windows: ${artifact.windows.length}`);
@@ -246,7 +248,8 @@ async function walkforwardCommand(options: Map<string, string>, logger: Pick<Con
     for (const line of summarizeMetrics(artifact.rolledUpMetrics)) {
       logger.log(line);
     }
-    logger.log(`Artifact: ${artifactPath}`);
+    logger.log(`Artifact JSON: ${artifactPaths.jsonPath}`);
+    logger.log(`Artifact Markdown: ${artifactPaths.markdownPath}`);
   } finally {
     store.close();
   }
@@ -286,6 +289,26 @@ async function researchCommand(options: Map<string, string>, logger: Pick<Consol
   }
 }
 
+async function artifactsCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
+  const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
+  const result = await writeArtifactIndex(artifactsDir);
+  logger.log("Artifact index complete");
+  logger.log(`Paper reports: ${result.index.counts.paper}`);
+  logger.log(`Research reports: ${result.index.counts.research}`);
+  logger.log(`Walk-forward reports: ${result.index.counts.walkforward}`);
+  if (result.index.latest.paper) {
+    logger.log(`Latest paper: ${result.index.latest.paper.headline}`);
+  }
+  if (result.index.latest.research) {
+    logger.log(`Latest research: ${result.index.latest.research.headline}`);
+  }
+  if (result.index.latest.walkforward) {
+    logger.log(`Latest walk-forward: ${result.index.latest.walkforward.headline}`);
+  }
+  logger.log(`Index JSON: ${result.jsonPath}`);
+  logger.log(`Index Markdown: ${result.markdownPath}`);
+}
+
 export async function runCli(argv: string[], logger: Pick<Console, "log"> = console): Promise<void> {
   const [command = "help", ...rest] = argv;
   const options = parseArgs(rest);
@@ -302,6 +325,9 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
     case "walkforward":
       await walkforwardCommand(options, logger);
       return;
+    case "artifacts":
+      await artifactsCommand(options, logger);
+      return;
     case "research":
       await researchCommand(options, logger);
       return;
@@ -309,7 +335,7 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
       await paperCommand(options, logger);
       return;
     default:
-      logger.log("Commands: ingest, sync-calendars, backtest, walkforward, research, paper");
+      logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper");
       logger.log('ingest options: --file <csv> [--db path] [--symbol MNQ] [--contract H26]');
   }
 }

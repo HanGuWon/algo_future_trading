@@ -25,7 +25,7 @@ vi.mock("../src/storage/sqliteStore.js", () => {
 });
 
 describe("walk-forward CLI", () => {
-  it("prints a summary and writes an artifact path", async () => {
+  it("prints a summary and writes json and markdown artifact paths", async () => {
     const { runCli } = await import("../src/cli/index.js");
     const artifactsDir = join(await mkdtemp(join(tmpdir(), "wf-cli-")), "artifacts");
     const output: string[] = [];
@@ -56,6 +56,7 @@ describe("walk-forward CLI", () => {
     );
 
     expect(output.some((line) => line.includes("Walk-forward complete"))).toBe(true);
-    expect(output.some((line) => line.includes("Artifact:"))).toBe(true);
+    expect(output.some((line) => line.includes("Artifact JSON:"))).toBe(true);
+    expect(output.some((line) => line.includes("Artifact Markdown:"))).toBe(true);
   });
 });

@@ -11,6 +11,7 @@
     "sync-calendars": "tsx src/cli/index.ts sync-calendars",
     "backtest": "tsx src/cli/index.ts backtest",
     "walkforward": "tsx src/cli/index.ts walkforward",
+    "artifacts": "tsx src/cli/index.ts artifacts",
     "research": "tsx src/cli/index.ts research",
     "paper": "tsx src/cli/index.ts paper"
   },
