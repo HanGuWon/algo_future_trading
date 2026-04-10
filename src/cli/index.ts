@@ -16,6 +16,7 @@ import {
 import { aggregateBars, parseCsvBarsDetailed } from "../data/barAggregation.js";
 import { PaperEngine } from "../paper/paperEngine.js";
 import { writePaperArtifact } from "../reporting/paperArtifacts.js";
+import { writeResearchArtifact } from "../reporting/researchArtifacts.js";
 import {
   buildDailyPerformanceRows,
   buildSessionPerformanceRows,
@@ -23,6 +24,7 @@ import {
   summarizeMetrics,
   summarizePerformanceRows
 } from "../reporting/metrics.js";
+import { ResearchReportRunner } from "../research/report.js";
 import { WalkForwardRunner } from "../research/walkforward.js";
 import { SqliteStore } from "../storage/sqliteStore.js";
 
@@ -249,6 +251,39 @@ async function walkforwardCommand(options: Map<string, string>, logger: Pick<Con
   }
 }
 
+async function researchCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
+  const dbPath = options.get("db") ?? DEFAULT_DB_PATH;
+  const store = new SqliteStore(dbPath);
+  try {
+    const bars1m = store.getBars("MNQ", "1m", ACCEPTANCE_SPLIT.trainStart, ACCEPTANCE_SPLIT.testEnd);
+    if (bars1m.length === 0) {
+      throw new Error(`No 1m MNQ bars found in ${dbPath} for research mode. Run ingest first.`);
+    }
+    const eventWindows = store.getEventWindows(ACCEPTANCE_SPLIT.trainStart, ACCEPTANCE_SPLIT.testEnd);
+    const runner = new ResearchReportRunner(bars1m, eventWindows);
+    const artifact = runner.run();
+    const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
+    const artifactPath = await writeResearchArtifact(artifact, artifactsDir);
+
+    logger.log("Research report complete");
+    logger.log(`Baseline acceptance: test expectancy ${artifact.baseline.test.metrics.expectancyUsd.toFixed(2)} USD`);
+    logger.log(
+      `Walk-forward OOS: ${artifact.walkforward.selectedWindowCount}/${artifact.walkforward.windowCount} windows selected`
+    );
+    logger.log(
+      `Parameter stability: ${artifact.sensitivity.stableCandidateCount}/${artifact.sensitivity.totalCandidates} stable candidates`
+    );
+    const defaultEventScenario = artifact.eventComparison.scenarios.find((scenario) => scenario.scenario === "default");
+    logger.log(
+      `Event-filter comparison: default expectancy ${defaultEventScenario?.metrics.expectancyUsd.toFixed(2) ?? "0.00"} USD`
+    );
+    logger.log(`Recommendation: ${artifact.finalAssessment.recommendation}`);
+    logger.log(`Artifact: ${artifactPath}`);
+  } finally {
+    store.close();
+  }
+}
+
 export async function runCli(argv: string[], logger: Pick<Console, "log"> = console): Promise<void> {
   const [command = "help", ...rest] = argv;
   const options = parseArgs(rest);
@@ -265,11 +300,14 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
     case "walkforward":
       await walkforwardCommand(options, logger);
       return;
+    case "research":
+      await researchCommand(options, logger);
+      return;
     case "paper":
       await paperCommand(options, logger);
       return;
     default:
-      logger.log("Commands: ingest, sync-calendars, backtest, walkforward, paper");
+      logger.log("Commands: ingest, sync-calendars, backtest, walkforward, research, paper");
       logger.log('ingest options: --file <csv> [--db path] [--symbol MNQ] [--contract H26]');
   }
 }

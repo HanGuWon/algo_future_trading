@@ -306,6 +306,87 @@ export interface PaperReportArtifact {
   sessionPerformance: SessionPerformanceRow[];
 }
 
+export interface AcceptanceSliceResult {
+  slice: "train" | "validation" | "test";
+  range: DateRange;
+  metrics: RunMetrics;
+}
+
+export interface SensitivityCandidateResult {
+  candidate: ParameterCandidate;
+  validationMetrics: RunMetrics;
+  testMetrics: RunMetrics;
+  isStable: boolean;
+  rank: number;
+  baselineDelta: {
+    validationNetPnlUsd: number;
+    testNetPnlUsd: number;
+    validationExpectancyUsd: number;
+    testExpectancyUsd: number;
+  };
+  neighborDispersion: {
+    validationNetPnlRangeUsd: number;
+    testNetPnlRangeUsd: number;
+    validationExpectancyRangeUsd: number;
+    testExpectancyRangeUsd: number;
+  };
+}
+
+export interface EventScenarioResult {
+  scenario: "default" | "disabled" | "full_session";
+  metrics: RunMetrics;
+  deltaFromBaseline: {
+    tradeCount: number;
+    netPnlUsd: number;
+    expectancyUsd: number;
+    maxDrawdownUsd: number;
+  };
+}
+
+export interface FinalResearchAssessment {
+  baseline_test_positive_expectancy: boolean;
+  walkforward_oos_positive_expectancy: boolean;
+  parameter_stability_pass: boolean;
+  event_filter_dependence: "low" | "moderate" | "high";
+  recommendation: "continue_paper" | "research_more" | "reject_current_rule_set";
+}
+
+export interface ResearchReportArtifact {
+  generatedAtUtc: string;
+  symbol: string;
+  strategyId: StrategyId;
+  baseline: {
+    train: AcceptanceSliceResult;
+    validation: AcceptanceSliceResult;
+    test: AcceptanceSliceResult;
+  };
+  walkforward: {
+    mode: "fixed" | "grid";
+    windowCount: number;
+    selectedWindowCount: number;
+    rolledUpMetrics: RunMetrics;
+    windows: Array<{
+      id: string;
+      status: WindowSelectionResult["status"];
+      selectedCandidateId: string | null;
+      selectedTestMetrics: RunMetrics | null;
+    }>;
+  };
+  sensitivity: {
+    baselineCandidateId: string;
+    baselineRank: number | null;
+    totalCandidates: number;
+    stableCandidateCount: number;
+    topCandidates: SensitivityCandidateResult[];
+  };
+  eventComparison: {
+    range: DateRange;
+    baselineScenario: "default";
+    scenarios: EventScenarioResult[];
+  };
+  finalAssessment: FinalResearchAssessment;
+}
+
 export interface WalkForwardWindow {
   id: string;
   train: DateRange;

@@ -277,6 +277,12 @@ export class SqliteStore {
     );
   }
 
+  countRows(table: "trades" | "paper_state"): number {
+    const statement = this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`);
+    const row = statement.get() as { count?: number } | undefined;
+    return Number(row?.count ?? 0);
+  }
+
   close(): void {
     this.db.close();
   }
