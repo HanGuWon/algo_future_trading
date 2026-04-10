@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { BacktestEngine } from "../backtest/engine.js";
 import { OfficialCalendarProvider } from "../calendars/officialCalendarProvider.js";
 import {
+  ACCEPTANCE_SPLIT,
   CALENDAR_SEED_PATH,
   DEFAULT_ACCOUNT_EQUITY_USD,
   DEFAULT_ARTIFACTS_DIR,
@@ -12,7 +13,8 @@ import {
   DEFAULT_WALKFORWARD_DAYS,
   MNQ_SPEC
 } from "../config/defaults.js";
-import { aggregateBars, parseCsvBars } from "../data/barAggregation.js";
+import { aggregateBars, parseCsvBarsDetailed } from "../data/barAggregation.js";
+import { PaperEngine } from "../paper/paperEngine.js";
 import { summarizeMetrics } from "../reporting/metrics.js";
 import { WalkForwardRunner } from "../research/walkforward.js";
 import { SqliteStore } from "../storage/sqliteStore.js";
@@ -39,15 +41,17 @@ function getNumberOption(options: Map<string, string>, key: string, fallback: nu
   return raw === undefined ? fallback : Number(raw);
 }
 
-async function ingestCommand(options: Map<string, string>): Promise<void> {
+async function ingestCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
   const file = options.get("file");
   if (!file) {
     throw new Error("ingest requires --file <csv>");
   }
   const dbPath = options.get("db") ?? DEFAULT_DB_PATH;
   const symbol = options.get("symbol") ?? "MNQ";
+  const contractFallback = options.get("contract") ?? "UNKNOWN";
   const raw = await readFile(file, "utf8");
-  const bars1m = parseCsvBars(raw, symbol);
+  const parsed = parseCsvBarsDetailed(raw, symbol, contractFallback);
+  const bars1m = parsed.bars;
   const store = new SqliteStore(dbPath);
   try {
     store.insertBars("1m", bars1m);
@@ -57,10 +61,18 @@ async function ingestCommand(options: Map<string, string>): Promise<void> {
   } finally {
     store.close();
   }
-  console.log(`Ingested ${bars1m.length} raw 1m bars into ${dbPath}`);
+  logger.log(`Ingested ${bars1m.length} raw 1m bars into ${dbPath}`);
+  logger.log(`Range: ${parsed.summary.firstTsUtc} -> ${parsed.summary.lastTsUtc}`);
+  logger.log(`Contracts: ${parsed.summary.contracts.join(", ")}`);
+  if (parsed.summary.usedFallbackContract) {
+    logger.log(`Fallback contract in use: ${contractFallback}`);
+  }
+  for (const warning of parsed.warnings) {
+    logger.log(`Warning: ${warning}`);
+  }
 }
 
-async function syncCalendarsCommand(options: Map<string, string>): Promise<void> {
+async function syncCalendarsCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
   const outputPath = options.get("out") ?? CALENDAR_SEED_PATH;
   await mkdir(dirname(outputPath), { recursive: true });
   const provider = new OfficialCalendarProvider(DEFAULT_STRATEGY_CONFIG);
@@ -73,10 +85,13 @@ async function syncCalendarsCommand(options: Map<string, string>): Promise<void>
       store.close();
     }
   }
-  console.log(`Synced ${windows.length} official event windows to ${outputPath}`);
+  logger.log(`Synced ${windows.length} official event windows to ${outputPath}`);
 }
 
-async function backtestCommand(options: Map<string, string>, paperMode = false): Promise<void> {
+async function backtestCommand(
+  options: Map<string, string>,
+  logger: Pick<Console, "log"> = console
+): Promise<void> {
   const dbPath = options.get("db") ?? DEFAULT_DB_PATH;
   const store = new SqliteStore(dbPath);
   try {
@@ -93,12 +108,51 @@ async function backtestCommand(options: Map<string, string>, paperMode = false):
     const grossPnl = result.trades.reduce((sum, trade) => sum + trade.pnlUsd, 0);
     const wins = result.trades.filter((trade) => trade.pnlUsd > 0).length;
     const winRate = result.trades.length > 0 ? (wins / result.trades.length) * 100 : 0;
-    console.log(`${paperMode ? "Paper" : "Backtest"} complete`);
-    console.log(`Trades: ${result.trades.length}`);
-    console.log(`Rejected signals: ${result.rejectedSignals.length}`);
-    console.log(`Win rate: ${winRate.toFixed(2)}%`);
-    console.log(`Net PnL: ${grossPnl.toFixed(2)} USD`);
-    console.log(`Final equity: ${result.finalAccountState.equityUsd.toFixed(2)} USD`);
+    logger.log("Backtest complete");
+    logger.log(`Trades: ${result.trades.length}`);
+    logger.log(`Rejected signals: ${result.rejectedSignals.length}`);
+    logger.log(`Win rate: ${winRate.toFixed(2)}%`);
+    logger.log(`Net PnL: ${grossPnl.toFixed(2)} USD`);
+    logger.log(`Final equity: ${result.finalAccountState.equityUsd.toFixed(2)} USD`);
+  } finally {
+    store.close();
+  }
+}
+
+async function paperCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
+  const dbPath = options.get("db") ?? DEFAULT_DB_PATH;
+  const store = new SqliteStore(dbPath);
+  try {
+    const start = options.get("start") ?? ACCEPTANCE_SPLIT.paperStart;
+    const end = options.get("end");
+    const bars1m = store.getBars("MNQ", "1m", start, end);
+    if (bars1m.length === 0) {
+      throw new Error(`No 1m MNQ bars found in ${dbPath} for paper mode. Run ingest first.`);
+    }
+    const eventWindows = store.getEventWindows(start, end);
+    const priorState = store.getPaperState(DEFAULT_STRATEGY_CONFIG.strategyId, MNQ_SPEC.symbol);
+    const engine = new PaperEngine(
+      DEFAULT_STRATEGY_CONFIG,
+      MNQ_SPEC,
+      DEFAULT_ACCOUNT_EQUITY_USD,
+      priorState?.paperStartUtc ?? start
+    );
+    const result = engine.run(bars1m, eventWindows, priorState);
+    store.insertTrades(result.trades);
+    store.upsertPaperState(result.finalState);
+
+    logger.log("Paper run complete");
+    logger.log(`New trades: ${result.trades.length}`);
+    logger.log(`Rejected signals: ${result.rejectedSignals.length}`);
+    logger.log(`Final equity: ${result.finalState.accountState.equityUsd.toFixed(2)} USD`);
+    logger.log(`Processed through: ${result.finalState.processedThroughUtc ?? "n/a"}`);
+    if (result.finalState.activePosition) {
+      logger.log(
+        `Active position: ${result.finalState.activePosition.status} ${result.finalState.activePosition.side} ${result.finalState.activePosition.remainingQty} @ ${result.finalState.activePosition.entryPx.toFixed(2)}`
+      );
+    } else {
+      logger.log("Active position: none");
+    }
   } finally {
     store.close();
   }
@@ -146,22 +200,23 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
   const options = parseArgs(rest);
   switch (command) {
     case "ingest":
-      await ingestCommand(options);
+      await ingestCommand(options, logger);
       return;
     case "sync-calendars":
-      await syncCalendarsCommand(options);
+      await syncCalendarsCommand(options, logger);
       return;
     case "backtest":
-      await backtestCommand(options, false);
+      await backtestCommand(options, logger);
       return;
     case "walkforward":
       await walkforwardCommand(options, logger);
       return;
     case "paper":
-      await backtestCommand(options, true);
+      await paperCommand(options, logger);
       return;
     default:
       logger.log("Commands: ingest, sync-calendars, backtest, walkforward, paper");
+      logger.log('ingest options: --file <csv> [--db path] [--symbol MNQ] [--contract H26]');
   }
 }
 

@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import type { Bar, InstrumentSpec, PaperOrder, SignalCandidate, StrategyConfig, TradeRecord } from "../types.js";
+import type {
+  Bar,
+  InstrumentSpec,
+  PaperOrder,
+  PaperPositionState,
+  SignalCandidate,
+  StrategyConfig,
+  TradeRecord
+} from "../types.js";
 import { buildSessionKey } from "../utils/time.js";
 
 function tickSlippageUsd(qty: number, ticks: number, tickValue: number): number {
@@ -30,6 +38,36 @@ export class PaperBroker {
       filledQty: 0,
       breakEvenArmed: false,
       sessionExitTs
+    };
+  }
+
+  submitStateful(
+    signal: SignalCandidate,
+    qty: number,
+    contract: string,
+    submittedTs: string,
+    sessionExitTs: string,
+    entryWindowEndTs: string
+  ): PaperPositionState {
+    return {
+      id: randomUUID(),
+      strategyId: this.config.strategyId,
+      symbol: this.spec.symbol,
+      contract,
+      side: signal.side,
+      qty,
+      remainingQty: qty,
+      entryPx: signal.entryPx,
+      stopPx: signal.stopPx,
+      targetPx: signal.targetPx,
+      signalTs: signal.signalTs,
+      submittedTs,
+      status: "PENDING",
+      breakEvenArmed: false,
+      currentStopPx: signal.stopPx,
+      sessionExitTs,
+      entryWindowEndTs,
+      lastProcessedBarTs: null
     };
   }
 
@@ -75,98 +113,237 @@ export class PaperBroker {
     };
   }
 
+  advancePendingOrder(
+    order: PaperPositionState,
+    entryBars: Bar[]
+  ): { nextOrder: PaperPositionState | null; rejectedReason?: string } {
+    let nextOrder = { ...order };
+    for (const entryBar of entryBars) {
+      if (nextOrder.lastProcessedBarTs && entryBar.tsUtc <= nextOrder.lastProcessedBarTs) {
+        continue;
+      }
+      if (entryBar.tsUtc > nextOrder.entryWindowEndTs) {
+        return { nextOrder: null, rejectedReason: "entry_not_triggered" };
+      }
+
+      const filled = this.tryFillPending(
+        {
+          id: nextOrder.id,
+          strategyId: nextOrder.strategyId,
+          symbol: nextOrder.symbol,
+          contract: nextOrder.contract,
+          side: nextOrder.side,
+          qty: nextOrder.qty,
+          entryPx: nextOrder.entryPx,
+          stopPx: nextOrder.stopPx,
+          targetPx: nextOrder.targetPx,
+          signalTs: nextOrder.signalTs,
+          submittedTs: nextOrder.submittedTs,
+          status: "PENDING",
+          filledQty: 0,
+          breakEvenArmed: nextOrder.breakEvenArmed,
+          sessionExitTs: nextOrder.sessionExitTs
+        },
+        entryBar
+      );
+
+      if (filled === null) {
+        return { nextOrder: null, rejectedReason: "entry_invalidated" };
+      }
+
+      if (filled.status === "OPEN" && filled.avgFillPx !== undefined) {
+        return {
+          nextOrder: {
+            ...nextOrder,
+            contract: filled.contract,
+            status: "OPEN",
+            avgFillPx: filled.avgFillPx,
+            filledTs: entryBar.tsUtc,
+            submittedTs: entryBar.tsUtc,
+            currentStopPx: nextOrder.stopPx,
+            lastProcessedBarTs: entryBar.tsUtc
+          }
+        };
+      }
+
+      nextOrder = {
+        ...nextOrder,
+        lastProcessedBarTs: entryBar.tsUtc
+      };
+    }
+
+    return {
+      nextOrder:
+        nextOrder.lastProcessedBarTs !== null && nextOrder.lastProcessedBarTs >= nextOrder.entryWindowEndTs ? null : nextOrder,
+      rejectedReason:
+        nextOrder.lastProcessedBarTs !== null && nextOrder.lastProcessedBarTs >= nextOrder.entryWindowEndTs
+          ? "entry_not_triggered"
+          : undefined
+    };
+  }
+
+  advanceOpenPosition(
+    position: PaperPositionState,
+    executionBars5m: Bar[],
+    trailingBars15m: Bar[]
+  ): { nextPosition: PaperPositionState | null; trades: TradeRecord[] } {
+    if (position.status !== "OPEN" || position.avgFillPx === undefined) {
+      return { nextPosition: position, trades: [] };
+    }
+
+    const nextPosition = { ...position };
+    const avgFillPx = position.avgFillPx;
+    const records: TradeRecord[] = [];
+    const partialQty = Math.floor(nextPosition.qty / 2);
+
+    for (const bar of executionBars5m) {
+      if (nextPosition.lastProcessedBarTs && bar.tsUtc <= nextPosition.lastProcessedBarTs) {
+        continue;
+      }
+
+      if (bar.tsUtc >= nextPosition.sessionExitTs || buildSessionKey(bar.tsUtc) !== buildSessionKey(nextPosition.signalTs)) {
+        records.push(
+            this.buildRecord(
+              nextPosition,
+              nextPosition.remainingQty,
+              avgFillPx,
+              bar.open,
+              bar.tsUtc,
+              "SESSION_FLAT",
+            0
+          )
+        );
+        return { nextPosition: null, trades: records };
+      }
+
+      nextPosition.currentStopPx = this.computeTrailingStop(nextPosition, nextPosition.currentStopPx, bar.tsUtc, trailingBars15m);
+
+      if (nextPosition.side === "BUY") {
+        if (bar.low <= nextPosition.currentStopPx) {
+          records.push(
+            this.buildRecord(
+              nextPosition,
+              nextPosition.remainingQty,
+              avgFillPx,
+              effectivePrice(nextPosition.currentStopPx, "SELL", this.slippageTicks(bar), this.spec.tickSize),
+              bar.tsUtc,
+              nextPosition.breakEvenArmed || nextPosition.currentStopPx > nextPosition.stopPx ? "TRAIL" : "STOP",
+              this.slippageTicks(bar)
+            )
+          );
+          return { nextPosition: null, trades: records };
+        }
+
+        if (!nextPosition.breakEvenArmed && bar.high >= nextPosition.targetPx) {
+          const qtyToClose = partialQty > 0 ? partialQty : nextPosition.remainingQty;
+          records.push(
+            this.buildRecord(
+              nextPosition,
+              qtyToClose,
+              avgFillPx,
+              effectivePrice(nextPosition.targetPx, "SELL", this.slippageTicks(bar), this.spec.tickSize),
+              bar.tsUtc,
+              "TARGET",
+              this.slippageTicks(bar)
+            )
+          );
+          nextPosition.remainingQty -= qtyToClose;
+          nextPosition.breakEvenArmed = nextPosition.remainingQty > 0;
+          nextPosition.currentStopPx = Math.max(avgFillPx, nextPosition.currentStopPx);
+          nextPosition.lastProcessedBarTs = bar.tsUtc;
+          if (nextPosition.remainingQty <= 0) {
+            return { nextPosition: null, trades: records };
+          }
+          continue;
+        }
+      } else {
+        if (bar.high >= nextPosition.currentStopPx) {
+          records.push(
+            this.buildRecord(
+              nextPosition,
+              nextPosition.remainingQty,
+              avgFillPx,
+              effectivePrice(nextPosition.currentStopPx, "BUY", this.slippageTicks(bar), this.spec.tickSize),
+              bar.tsUtc,
+              nextPosition.breakEvenArmed || nextPosition.currentStopPx < nextPosition.stopPx ? "TRAIL" : "STOP",
+              this.slippageTicks(bar)
+            )
+          );
+          return { nextPosition: null, trades: records };
+        }
+
+        if (!nextPosition.breakEvenArmed && bar.low <= nextPosition.targetPx) {
+          const qtyToClose = partialQty > 0 ? partialQty : nextPosition.remainingQty;
+          records.push(
+            this.buildRecord(
+              nextPosition,
+              qtyToClose,
+              avgFillPx,
+              effectivePrice(nextPosition.targetPx, "BUY", this.slippageTicks(bar), this.spec.tickSize),
+              bar.tsUtc,
+              "TARGET",
+              this.slippageTicks(bar)
+            )
+          );
+          nextPosition.remainingQty -= qtyToClose;
+          nextPosition.breakEvenArmed = nextPosition.remainingQty > 0;
+          nextPosition.currentStopPx = Math.min(avgFillPx, nextPosition.currentStopPx);
+          nextPosition.lastProcessedBarTs = bar.tsUtc;
+          if (nextPosition.remainingQty <= 0) {
+            return { nextPosition: null, trades: records };
+          }
+          continue;
+        }
+      }
+
+      nextPosition.lastProcessedBarTs = bar.tsUtc;
+    }
+
+    return { nextPosition, trades: records };
+  }
+
   closeOpenOrder(order: PaperOrder, executionBars5m: Bar[], trailingBars15m: Bar[]): TradeRecord[] {
     if (order.status !== "OPEN" || order.avgFillPx === undefined) {
       return [];
     }
 
-    let remainingQty = order.qty;
-    let stopPx = order.stopPx;
-    let breakEvenArmed = false;
-    const records: TradeRecord[] = [];
-    const partialQty = Math.floor(order.qty / 2);
+    const incremental = this.advanceOpenPosition(
+      {
+        id: order.id,
+        strategyId: order.strategyId,
+        symbol: order.symbol,
+        contract: order.contract,
+        side: order.side,
+        qty: order.qty,
+        remainingQty: order.qty,
+        entryPx: order.entryPx,
+        stopPx: order.stopPx,
+        targetPx: order.targetPx,
+        signalTs: order.signalTs,
+        submittedTs: order.submittedTs,
+        filledTs: order.submittedTs,
+        status: "OPEN",
+        avgFillPx: order.avgFillPx,
+        breakEvenArmed: false,
+        currentStopPx: order.stopPx,
+        sessionExitTs: order.sessionExitTs,
+        entryWindowEndTs: order.submittedTs,
+        lastProcessedBarTs: null
+      },
+      executionBars5m,
+      trailingBars15m
+    );
 
-    for (const bar of executionBars5m) {
-      if (bar.tsUtc < order.submittedTs) {
-        continue;
-      }
-
-      if (bar.tsUtc >= order.sessionExitTs || buildSessionKey(bar.tsUtc) !== buildSessionKey(order.signalTs)) {
-        records.push(this.buildRecord(order, remainingQty, order.avgFillPx, bar.open, bar.tsUtc, "SESSION_FLAT", 0));
-        return records;
-      }
-
-      const trailingStop = this.computeTrailingStop(order, stopPx, bar.tsUtc, trailingBars15m);
-      stopPx = trailingStop;
-
-      if (order.side === "BUY") {
-        if (bar.low <= stopPx) {
-          records.push(
-            this.buildRecord(order, remainingQty, order.avgFillPx, effectivePrice(stopPx, "SELL", this.slippageTicks(bar), this.spec.tickSize), bar.tsUtc, breakEvenArmed ? "TRAIL" : "STOP", this.slippageTicks(bar))
-          );
-          return records;
-        }
-
-        if (!breakEvenArmed && bar.high >= order.targetPx) {
-          const qtyToClose = partialQty > 0 ? partialQty : remainingQty;
-          records.push(
-            this.buildRecord(
-              order,
-              qtyToClose,
-              order.avgFillPx,
-              effectivePrice(order.targetPx, "SELL", this.slippageTicks(bar), this.spec.tickSize),
-              bar.tsUtc,
-              "TARGET",
-              this.slippageTicks(bar)
-            )
-          );
-          remainingQty -= qtyToClose;
-          breakEvenArmed = remainingQty > 0;
-          stopPx = Math.max(order.avgFillPx, stopPx);
-          if (remainingQty <= 0) {
-            return records;
-          }
-        }
-      } else {
-        if (bar.high >= stopPx) {
-          records.push(
-            this.buildRecord(order, remainingQty, order.avgFillPx, effectivePrice(stopPx, "BUY", this.slippageTicks(bar), this.spec.tickSize), bar.tsUtc, breakEvenArmed ? "TRAIL" : "STOP", this.slippageTicks(bar))
-          );
-          return records;
-        }
-
-        if (!breakEvenArmed && bar.low <= order.targetPx) {
-          const qtyToClose = partialQty > 0 ? partialQty : remainingQty;
-          records.push(
-            this.buildRecord(
-              order,
-              qtyToClose,
-              order.avgFillPx,
-              effectivePrice(order.targetPx, "BUY", this.slippageTicks(bar), this.spec.tickSize),
-              bar.tsUtc,
-              "TARGET",
-              this.slippageTicks(bar)
-            )
-          );
-          remainingQty -= qtyToClose;
-          breakEvenArmed = remainingQty > 0;
-          stopPx = Math.min(order.avgFillPx, stopPx);
-          if (remainingQty <= 0) {
-            return records;
-          }
-        }
-      }
+    if (incremental.nextPosition && executionBars5m.length > 0) {
+      const lastBar = executionBars5m[executionBars5m.length - 1];
+      incremental.trades.push(this.buildRecord(incremental.nextPosition, incremental.nextPosition.remainingQty, order.avgFillPx, lastBar.close, lastBar.tsUtc, "SESSION_FLAT", 0));
     }
 
-    const lastBar = executionBars5m[executionBars5m.length - 1];
-    if (remainingQty > 0 && lastBar) {
-      records.push(this.buildRecord(order, remainingQty, order.avgFillPx, lastBar.close, lastBar.tsUtc, "SESSION_FLAT", 0));
-    }
-    return records;
+    return incremental.trades;
   }
 
-  private computeTrailingStop(order: PaperOrder, currentStop: number, tsUtc: string, trailingBars15m: Bar[]): number {
-    if (!order.avgFillPx) {
+  private computeTrailingStop(position: PaperPositionState, currentStop: number, tsUtc: string, trailingBars15m: Bar[]): number {
+    if (!position.avgFillPx) {
       return currentStop;
     }
     const eligibleBars = trailingBars15m.filter((bar) => bar.tsUtc <= tsUtc);
@@ -174,7 +351,7 @@ export class PaperBroker {
       return currentStop;
     }
     const lastThree = eligibleBars.slice(-3);
-    if (order.side === "BUY") {
+    if (position.side === "BUY") {
       const swingLow = Math.min(...lastThree.map((bar) => bar.low)) - this.spec.tickSize;
       return Math.max(currentStop, swingLow);
     }
@@ -183,7 +360,7 @@ export class PaperBroker {
   }
 
   private buildRecord(
-    order: PaperOrder,
+    position: PaperPositionState,
     qty: number,
     entryPx: number,
     exitPx: number,
@@ -192,22 +369,24 @@ export class PaperBroker {
     slippageTicks: number
   ): TradeRecord {
     const grossPnl =
-      order.side === "BUY" ? (exitPx - entryPx) * qty * this.spec.contractMultiplier : (entryPx - exitPx) * qty * this.spec.contractMultiplier;
+      position.side === "BUY"
+        ? (exitPx - entryPx) * qty * this.spec.contractMultiplier
+        : (entryPx - exitPx) * qty * this.spec.contractMultiplier;
     const feesUsd = qty * this.config.commissionPerContractUsd;
     const slippageUsd = tickSlippageUsd(qty, slippageTicks, this.spec.tickValue);
     return {
       id: randomUUID(),
-      strategyId: order.strategyId,
-      symbol: order.symbol,
-      contract: order.contract,
-      side: order.side,
+      strategyId: position.strategyId,
+      symbol: position.symbol,
+      contract: position.contract,
+      side: position.side,
       qty,
-      entryTs: order.submittedTs,
+      entryTs: position.filledTs ?? position.submittedTs,
       exitTs,
       entryPx,
       exitPx,
-      stopPx: order.stopPx,
-      targetPx: order.targetPx,
+      stopPx: position.stopPx,
+      targetPx: position.targetPx,
       feesUsd,
       slippageUsd,
       pnlUsd: grossPnl - feesUsd - slippageUsd,

@@ -129,6 +129,23 @@ export function addMinutesUtc(input: Date | string, minutes: number): string {
   return new Date(date.getTime() + minutes * 60_000).toISOString();
 }
 
+export function sessionBoundaryAfter(input: Date | string): string {
+  const session = getSessionLabelChicago(input);
+  if (session === "CLOSED") {
+    return asDate(input).toISOString();
+  }
+
+  let candidate = asDate(input);
+  for (let step = 0; step < 12 * 60; step += 1) {
+    candidate = new Date(candidate.getTime() + 60_000);
+    if (getSessionLabelChicago(candidate) !== session) {
+      return candidate.toISOString();
+    }
+  }
+
+  throw new Error(`Unable to find session boundary after ${asDate(input).toISOString()}`);
+}
+
 export function diffMinutesUtc(start: Date | string, end: Date | string): number {
   return Math.round((asDate(end).getTime() - asDate(start).getTime()) / 60_000);
 }

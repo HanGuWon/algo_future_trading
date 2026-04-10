@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Bar, EventWindow, Timeframe, TradeRecord } from "../types.js";
+import type { Bar, EventWindow, PersistedPaperState, Timeframe, TradeRecord } from "../types.js";
 
 export class SqliteStore {
   private readonly db: DatabaseSync;
@@ -55,6 +55,14 @@ export class SqliteStore {
         pnl_usd REAL NOT NULL,
         exit_reason TEXT NOT NULL,
         version TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS paper_state (
+        strategy_id TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        state_json TEXT NOT NULL,
+        processed_through_utc TEXT,
+        updated_at_utc TEXT NOT NULL,
+        PRIMARY KEY (strategy_id, symbol)
       );
     `);
   }
@@ -179,6 +187,34 @@ export class SqliteStore {
         trade.version
       );
     }
+  }
+
+  getPaperState(strategyId: string, symbol: string): PersistedPaperState | null {
+    const statement = this.db.prepare(`
+      SELECT state_json
+      FROM paper_state
+      WHERE strategy_id = ? AND symbol = ?
+    `);
+    const row = statement.get(strategyId, symbol) as { state_json?: string } | undefined;
+    if (!row?.state_json) {
+      return null;
+    }
+    return JSON.parse(String(row.state_json)) as PersistedPaperState;
+  }
+
+  upsertPaperState(state: PersistedPaperState): void {
+    const statement = this.db.prepare(`
+      INSERT OR REPLACE INTO paper_state (
+        strategy_id, symbol, state_json, processed_through_utc, updated_at_utc
+      ) VALUES (?, ?, ?, ?, ?)
+    `);
+    statement.run(
+      state.strategyId,
+      state.symbol,
+      JSON.stringify(state),
+      state.processedThroughUtc,
+      state.updatedAtUtc
+    );
   }
 
   close(): void {

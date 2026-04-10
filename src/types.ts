@@ -108,6 +108,29 @@ export interface PaperOrder {
   sessionExitTs: string;
 }
 
+export interface PaperPositionState {
+  id: string;
+  strategyId: StrategyId;
+  symbol: string;
+  contract: string;
+  side: Side;
+  qty: number;
+  remainingQty: number;
+  entryPx: number;
+  stopPx: number;
+  targetPx: number;
+  signalTs: string;
+  submittedTs: string;
+  filledTs?: string;
+  status: "PENDING" | "OPEN";
+  avgFillPx?: number;
+  breakEvenArmed: boolean;
+  currentStopPx: number;
+  sessionExitTs: string;
+  entryWindowEndTs: string;
+  lastProcessedBarTs: string | null;
+}
+
 export interface TradeRecord {
   id: string;
   strategyId: StrategyId;
@@ -126,6 +149,18 @@ export interface TradeRecord {
   pnlUsd: number;
   exitReason: "STOP" | "TARGET" | "TRAIL" | "SESSION_FLAT";
   version: string;
+}
+
+export interface PersistedPaperState {
+  strategyId: StrategyId;
+  symbol: string;
+  paperStartUtc: string;
+  processedThroughUtc: string | null;
+  lastProcessedSignalTs: string | null;
+  currentTradingDate: string | null;
+  accountState: AccountState;
+  activePosition: PaperPositionState | null;
+  updatedAtUtc: string;
 }
 
 export interface InstrumentSpec {
@@ -185,6 +220,27 @@ export interface BacktestResult {
   trades: TradeRecord[];
   finalAccountState: AccountState;
   rejectedSignals: Array<{ tsUtc: string; reason: string }>;
+}
+
+export interface PaperRunResult {
+  trades: TradeRecord[];
+  finalState: PersistedPaperState;
+  rejectedSignals: Array<{ tsUtc: string; reason: string }>;
+}
+
+export interface CsvIngestionSummary {
+  symbol: string;
+  rowCount: number;
+  firstTsUtc: string;
+  lastTsUtc: string;
+  contracts: string[];
+  usedFallbackContract: boolean;
+}
+
+export interface ParsedCsvBarsResult {
+  bars: Bar[];
+  summary: CsvIngestionSummary;
+  warnings: string[];
 }
 
 export interface SessionMetricsBreakdown {
