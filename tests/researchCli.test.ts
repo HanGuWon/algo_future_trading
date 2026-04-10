@@ -115,7 +115,7 @@ describe("research CLI", () => {
     }
   });
 
-  it("prints a summary, writes an artifact, and does not mutate trades or paper_state", async () => {
+  it("prints a summary, writes json and markdown artifacts, and does not mutate trades or paper_state", async () => {
     const { runCli } = await import("../src/cli/index.js");
     const tempDir = await mkdtemp(join(tmpdir(), "research-cli-"));
     tempDirs.push(tempDir);
@@ -185,14 +185,22 @@ describe("research CLI", () => {
 
       expect(store.countRows("trades")).toBe(tradeCountBefore);
       expect(store.countRows("paper_state")).toBe(paperStateCountBefore);
-      expect(output.some((line) => line.includes("Artifact:"))).toBe(true);
+      expect(output.some((line) => line.includes("Artifact JSON:"))).toBe(true);
+      expect(output.some((line) => line.includes("Artifact Markdown:"))).toBe(true);
       expect(output.some((line) => line.includes("Recommendation: continue_paper"))).toBe(true);
 
       const reportFiles = await readdir(join(artifactsDir, "research"));
-      expect(reportFiles.length).toBe(1);
-      const raw = await readFile(join(artifactsDir, "research", reportFiles[0]!), "utf8");
+      expect(reportFiles.length).toBe(2);
+      const jsonName = reportFiles.find((entry) => entry.endsWith(".json"));
+      const markdownName = reportFiles.find((entry) => entry.endsWith(".md"));
+      expect(jsonName).toBeTruthy();
+      expect(markdownName).toBeTruthy();
+      const raw = await readFile(join(artifactsDir, "research", jsonName!), "utf8");
       const parsed = JSON.parse(raw) as ResearchReportArtifact;
       expect(parsed.finalAssessment.recommendation).toBe("continue_paper");
+      const markdown = await readFile(join(artifactsDir, "research", markdownName!), "utf8");
+      expect(markdown).toContain("# Research Report");
+      expect(markdown).toContain("## Final Assessment");
     } finally {
       store.close();
     }

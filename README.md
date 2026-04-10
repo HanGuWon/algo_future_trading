@@ -47,11 +47,13 @@ npm run ingest -- --file path/to/mnq_1m.csv --db data/mnq-research.sqlite --cont
 - `paper` now keeps persistent account and order state in SQLite `paper_state` and resumes from the prior run.
 - `paper` processes newly available bars only logically; it does not open duplicate signals once `lastProcessedSignalTs` has advanced.
 - `paper` writes JSON report artifacts under `artifacts/paper/` by default, including:
+  - matching Markdown summaries for quick human review
   - current run metrics
   - cumulative paper metrics
   - daily realized performance rows
   - session-level performance rows
 - `research` writes JSON artifacts under `artifacts/research/` by default, including:
+  - matching Markdown summaries for quick human review
   - fixed acceptance-split metrics
   - walk-forward OOS summary
   - parameter sensitivity ranking

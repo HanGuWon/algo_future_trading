@@ -95,7 +95,7 @@ vi.mock("../src/paper/paperEngine.js", () => {
 });
 
 describe("paper CLI", () => {
-  it("prints a summary and writes a paper artifact", async () => {
+  it("prints a summary and writes paper json and markdown artifacts", async () => {
     const { runCli } = await import("../src/cli/index.js");
     const artifactsDir = await mkdtemp(join(tmpdir(), "paper-cli-"));
     const output: string[] = [];
@@ -107,11 +107,16 @@ describe("paper CLI", () => {
     });
 
     expect(output.some((line) => line.includes("Paper run complete"))).toBe(true);
-    expect(output.some((line) => line.includes("Artifact:"))).toBe(true);
+    expect(output.some((line) => line.includes("Artifact JSON:"))).toBe(true);
+    expect(output.some((line) => line.includes("Artifact Markdown:"))).toBe(true);
 
     const paperDirEntries = await readdir(join(artifactsDir, "paper"));
-    expect(paperDirEntries.length).toBe(1);
-    const artifactRaw = await readFile(join(artifactsDir, "paper", paperDirEntries[0]!), "utf8");
+    expect(paperDirEntries.length).toBe(2);
+    const jsonName = paperDirEntries.find((entry) => entry.endsWith(".json"));
+    const markdownName = paperDirEntries.find((entry) => entry.endsWith(".md"));
+    expect(jsonName).toBeTruthy();
+    expect(markdownName).toBeTruthy();
+    const artifactRaw = await readFile(join(artifactsDir, "paper", jsonName!), "utf8");
     const artifact = JSON.parse(artifactRaw) as {
       run: { newTradeCount: number };
       dailyPerformance: Array<{ tradeCount: number }>;
@@ -120,5 +125,8 @@ describe("paper CLI", () => {
     expect(artifact.run.newTradeCount).toBe(1);
     expect(artifact.dailyPerformance[0]?.tradeCount).toBe(1);
     expect(artifact.sessionPerformance.some((row) => row.sessionLabel === "EUROPE")).toBe(true);
+    const markdownRaw = await readFile(join(artifactsDir, "paper", markdownName!), "utf8");
+    expect(markdownRaw).toContain("# Paper Report");
+    expect(markdownRaw).toContain("## Daily Performance");
   });
 });

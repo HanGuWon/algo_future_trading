@@ -167,7 +167,7 @@ async function paperCommand(options: Map<string, string>, logger: Pick<Console, 
     const dailyPerformance = buildDailyPerformanceRows(cumulativeTrades);
     const sessionPerformance = buildSessionPerformanceRows(cumulativeTrades);
     const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
-    const artifactPath = await writePaperArtifact(
+    const artifactPaths = await writePaperArtifact(
       {
         generatedAtUtc: new Date().toISOString(),
         symbol: MNQ_SPEC.symbol,
@@ -208,7 +208,8 @@ async function paperCommand(options: Map<string, string>, logger: Pick<Console, 
     } else {
       logger.log("Active position: none");
     }
-    logger.log(`Artifact: ${artifactPath}`);
+    logger.log(`Artifact JSON: ${artifactPaths.jsonPath}`);
+    logger.log(`Artifact Markdown: ${artifactPaths.markdownPath}`);
   } finally {
     store.close();
   }
@@ -263,7 +264,7 @@ async function researchCommand(options: Map<string, string>, logger: Pick<Consol
     const runner = new ResearchReportRunner(bars1m, eventWindows);
     const artifact = runner.run();
     const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
-    const artifactPath = await writeResearchArtifact(artifact, artifactsDir);
+    const artifactPaths = await writeResearchArtifact(artifact, artifactsDir);
 
     logger.log("Research report complete");
     logger.log(`Baseline acceptance: test expectancy ${artifact.baseline.test.metrics.expectancyUsd.toFixed(2)} USD`);
@@ -278,7 +279,8 @@ async function researchCommand(options: Map<string, string>, logger: Pick<Consol
       `Event-filter comparison: default expectancy ${defaultEventScenario?.metrics.expectancyUsd.toFixed(2) ?? "0.00"} USD`
     );
     logger.log(`Recommendation: ${artifact.finalAssessment.recommendation}`);
-    logger.log(`Artifact: ${artifactPath}`);
+    logger.log(`Artifact JSON: ${artifactPaths.jsonPath}`);
+    logger.log(`Artifact Markdown: ${artifactPaths.markdownPath}`);
   } finally {
     store.close();
   }
