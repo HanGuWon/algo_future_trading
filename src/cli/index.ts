@@ -30,6 +30,7 @@ import {
 import { ResearchReportRunner } from "../research/report.js";
 import { WalkForwardRunner } from "../research/walkforward.js";
 import { SqliteStore } from "../storage/sqliteStore.js";
+import type { ArtifactKind } from "../reporting/artifactIndex.js";
 
 export function parseArgs(argv: string[]): Map<string, string> {
   const options = new Map<string, string>();
@@ -335,9 +336,18 @@ async function researchCommand(options: Map<string, string>, logger: Pick<Consol
 async function artifactsCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
   const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
   const configHash = options.get("config-hash") ?? null;
-  const result = await writeArtifactIndex(artifactsDir, configHash);
+  const rawKind = options.get("kind");
+  const kind =
+    rawKind === "paper" || rawKind === "research" || rawKind === "walkforward"
+      ? (rawKind as ArtifactKind)
+      : null;
+  if (rawKind && !kind) {
+    throw new Error("artifacts --kind must be one of: paper, research, walkforward");
+  }
+  const result = await writeArtifactIndex(artifactsDir, configHash, kind);
   logger.log("Artifact index complete");
   logger.log(`Config hash filter: ${configHash ?? "none"}`);
+  logger.log(`Kind filter: ${kind ?? "none"}`);
   logger.log(`Paper reports: ${result.index.counts.paper}`);
   logger.log(`Research reports: ${result.index.counts.research}`);
   logger.log(`Walk-forward reports: ${result.index.counts.walkforward}`);
@@ -386,7 +396,7 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
     default:
       logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper");
       logger.log('ingest options: --file <csv> [--db path] [--symbol MNQ] [--contract H26]');
-      logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix]');
+      logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward]');
       logger.log(`strategy options: [--config ${DEFAULT_STRATEGY_CONFIG_PATH}]`);
   }
 }

@@ -9,7 +9,7 @@ import type {
 } from "../types.js";
 import type { WrittenArtifactPaths } from "./paperArtifacts.js";
 
-type ArtifactKind = "paper" | "research" | "walkforward";
+export type ArtifactKind = "paper" | "research" | "walkforward";
 
 interface ArtifactLatestSummary {
   kind: ArtifactKind;
@@ -25,6 +25,7 @@ interface ArtifactIndexFile {
   generatedAtUtc: string;
   artifactsDir: string;
   configHashFilter: string | null;
+  kindFilter: ArtifactKind | null;
   counts: Record<ArtifactKind, number>;
   latest: Partial<Record<ArtifactKind, ArtifactLatestSummary>>;
   byConfigHash: ArtifactConfigGroupSummary[];
@@ -206,7 +207,7 @@ function buildConfigGroups(
 }
 
 export async function buildArtifactIndex(artifactsDir = DEFAULT_ARTIFACTS_DIR): Promise<ArtifactIndexFile> {
-  return buildArtifactIndexWithFilter(artifactsDir, null);
+  return buildArtifactIndexWithFilter(artifactsDir, null, null);
 }
 
 function matchesConfigHash(summary: ArtifactLatestSummary, configHashFilter: string | null): boolean {
@@ -216,20 +217,30 @@ function matchesConfigHash(summary: ArtifactLatestSummary, configHashFilter: str
   return summary.config?.sha256.startsWith(configHashFilter) ?? false;
 }
 
+function matchesKind(summary: ArtifactLatestSummary, kindFilter: ArtifactKind | null): boolean {
+  if (!kindFilter) {
+    return true;
+  }
+  return summary.kind === kindFilter;
+}
+
 function latestForKind(
   kind: ArtifactKind,
   summaries: ArtifactLatestSummary[],
-  configHashFilter: string | null
+  configHashFilter: string | null,
+  kindFilter: ArtifactKind | null
 ): ArtifactLatestSummary | undefined {
   return summaries
     .filter((summary) => summary.kind === kind)
     .filter((summary) => matchesConfigHash(summary, configHashFilter))
+    .filter((summary) => matchesKind(summary, kindFilter))
     .sort(sortLatest)[0];
 }
 
 export async function buildArtifactIndexWithFilter(
   artifactsDir = DEFAULT_ARTIFACTS_DIR,
-  configHashFilter: string | null = null
+  configHashFilter: string | null = null,
+  kindFilter: ArtifactKind | null = null
 ): Promise<ArtifactIndexFile> {
   const paperDir = join(artifactsDir, "paper");
   const researchDir = join(artifactsDir, "research");
@@ -244,19 +255,22 @@ export async function buildArtifactIndexWithFilter(
   const allSummaries = [...paperSummaries, ...researchSummaries, ...walkforwardSummaries];
 
   const latest: Partial<Record<ArtifactKind, ArtifactLatestSummary>> = {};
-  latest.paper = latestForKind("paper", allSummaries, configHashFilter);
-  latest.research = latestForKind("research", allSummaries, configHashFilter);
-  latest.walkforward = latestForKind("walkforward", allSummaries, configHashFilter);
+  latest.paper = latestForKind("paper", allSummaries, configHashFilter, kindFilter);
+  latest.research = latestForKind("research", allSummaries, configHashFilter, kindFilter);
+  latest.walkforward = latestForKind("walkforward", allSummaries, configHashFilter, kindFilter);
 
   const byConfigHash = buildConfigGroups(allSummaries).filter((group) =>
     configHashFilter ? group.sha256.startsWith(configHashFilter) : true
   );
-  const filteredSummaries = allSummaries.filter((summary) => matchesConfigHash(summary, configHashFilter));
+  const filteredSummaries = allSummaries
+    .filter((summary) => matchesConfigHash(summary, configHashFilter))
+    .filter((summary) => matchesKind(summary, kindFilter));
 
   return {
     generatedAtUtc: new Date().toISOString(),
     artifactsDir,
     configHashFilter,
+    kindFilter,
     counts: {
       paper: filteredSummaries.filter((summary) => summary.kind === "paper").length,
       research: filteredSummaries.filter((summary) => summary.kind === "research").length,
@@ -274,6 +288,7 @@ export function renderArtifactIndexMarkdown(index: ArtifactIndexFile): string {
     `- Generated: ${index.generatedAtUtc}`,
     `- Artifacts dir: ${index.artifactsDir}`,
     `- Config hash filter: ${index.configHashFilter ?? "none"}`,
+    `- Kind filter: ${index.kindFilter ?? "none"}`,
     ``,
     `## Counts`,
     ``,
@@ -328,11 +343,13 @@ export function renderArtifactIndexMarkdown(index: ArtifactIndexFile): string {
 
 export async function writeArtifactIndex(
   artifactsDir = DEFAULT_ARTIFACTS_DIR,
-  configHashFilter: string | null = null
+  configHashFilter: string | null = null,
+  kindFilter: ArtifactKind | null = null
 ): Promise<WrittenArtifactPaths & { index: ArtifactIndexFile }> {
-  const index = await buildArtifactIndexWithFilter(artifactsDir, configHashFilter);
+  const index = await buildArtifactIndexWithFilter(artifactsDir, configHashFilter, kindFilter);
   await mkdir(artifactsDir, { recursive: true });
-  const suffix = configHashFilter ? `-${configHashFilter}` : "";
+  const suffixParts = [configHashFilter, kindFilter].filter((value): value is string => Boolean(value));
+  const suffix = suffixParts.length > 0 ? `-${suffixParts.join("-")}` : "";
   const jsonPath = join(artifactsDir, `index${suffix}.json`);
   const markdownPath = join(artifactsDir, `index${suffix}.md`);
   await writeFile(jsonPath, JSON.stringify(index, null, 2), "utf8");
