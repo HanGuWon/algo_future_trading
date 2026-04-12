@@ -336,6 +336,16 @@ async function researchCommand(options: Map<string, string>, logger: Pick<Consol
 async function artifactsCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
   const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
   const configHash = options.get("config-hash") ?? null;
+  const latestOnly = options.get("latest-only") === "true";
+  const rawLimit = options.get("limit");
+  let limit: number | null = null;
+  if (rawLimit !== undefined) {
+    const parsedLimit = Number(rawLimit);
+    if (!Number.isInteger(parsedLimit) || parsedLimit < 0) {
+      throw new Error("artifacts --limit must be a non-negative integer");
+    }
+    limit = parsedLimit;
+  }
   const rawKind = options.get("kind");
   const kind =
     rawKind === "paper" || rawKind === "research" || rawKind === "walkforward"
@@ -344,14 +354,17 @@ async function artifactsCommand(options: Map<string, string>, logger: Pick<Conso
   if (rawKind && !kind) {
     throw new Error("artifacts --kind must be one of: paper, research, walkforward");
   }
-  const result = await writeArtifactIndex(artifactsDir, configHash, kind);
+  const result = await writeArtifactIndex(artifactsDir, configHash, kind, latestOnly, limit);
   logger.log("Artifact index complete");
   logger.log(`Config hash filter: ${configHash ?? "none"}`);
   logger.log(`Kind filter: ${kind ?? "none"}`);
+  logger.log(`Latest only: ${latestOnly ? "yes" : "no"}`);
+  logger.log(`Limit: ${limit ?? "none"}`);
   logger.log(`Paper reports: ${result.index.counts.paper}`);
   logger.log(`Research reports: ${result.index.counts.research}`);
   logger.log(`Walk-forward reports: ${result.index.counts.walkforward}`);
-  logger.log(`Config profiles: ${result.index.byConfigHash.length}`);
+  logger.log(`Config profiles shown: ${result.index.byConfigHash.length}`);
+  logger.log(`Config profiles total: ${result.index.totalConfigProfiles}`);
   if (result.index.latest.paper) {
     logger.log(`Latest paper: ${result.index.latest.paper.headline}`);
   }
@@ -396,7 +409,7 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
     default:
       logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper");
       logger.log('ingest options: --file <csv> [--db path] [--symbol MNQ] [--contract H26]');
-      logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward]');
+      logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward] [--latest-only] [--limit N]');
       logger.log(`strategy options: [--config ${DEFAULT_STRATEGY_CONFIG_PATH}]`);
   }
 }

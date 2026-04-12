@@ -289,7 +289,8 @@ describe("artifacts CLI", () => {
     expect(output.some((line) => line.includes("Latest paper:"))).toBe(true);
     expect(output.some((line) => line.includes("Latest research:"))).toBe(true);
     expect(output.some((line) => line.includes("Latest walk-forward:"))).toBe(true);
-    expect(output.some((line) => line.includes("Config profiles: 3"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles shown: 3"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles total: 3"))).toBe(true);
     expect(output.some((line) => line.includes("Latest config group:"))).toBe(true);
 
     const topFiles = await readdir(artifactsDir);
@@ -454,7 +455,8 @@ describe("artifacts CLI", () => {
     expect(output.some((line) => line.includes("Config hash filter: aaaaaaaa"))).toBe(true);
     expect(output.some((line) => line.includes("Paper reports: 1"))).toBe(true);
     expect(output.some((line) => line.includes("Research reports: 0"))).toBe(true);
-    expect(output.some((line) => line.includes("Config profiles: 1"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles shown: 1"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles total: 1"))).toBe(true);
     expect(output.some((line) => line.includes("Latest paper:"))).toBe(true);
     expect(output.some((line) => line.includes("Latest research:"))).toBe(false);
     expect((await readdir(artifactsDir)).includes("index-aaaaaaaa.json")).toBe(true);
@@ -616,6 +618,8 @@ describe("artifacts CLI", () => {
     expect(output.some((line) => line.includes("Kind filter: paper"))).toBe(true);
     expect(output.some((line) => line.includes("Paper reports: 1"))).toBe(true);
     expect(output.some((line) => line.includes("Research reports: 0"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles shown: 1"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles total: 1"))).toBe(true);
     expect(output.some((line) => line.includes("Latest paper:"))).toBe(true);
     expect(output.some((line) => line.includes("Latest research:"))).toBe(false);
     expect((await readdir(artifactsDir)).includes("index-paper.json")).toBe(true);
@@ -623,5 +627,203 @@ describe("artifacts CLI", () => {
     expect(filteredMarkdown).toContain("Kind filter: paper");
     expect(filteredMarkdown).toContain("Paper reports: 1");
     expect(filteredMarkdown).toContain("Research reports: 0");
+    expect(filteredMarkdown).toContain("Config profiles total: 1");
+  });
+
+  it("limits config groups in the artifact index", async () => {
+    const { runCli } = await import("../src/cli/index.js");
+    const artifactsDir = await mkdtemp(join(tmpdir(), "artifact-index-limit-"));
+    tempDirs.push(artifactsDir);
+    await mkdir(join(artifactsDir, "paper"), { recursive: true });
+
+    for (const [index, sha, summary] of [
+      [1, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "fast=20 slow=120 score=3 postEvent=60"],
+      [2, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "fast=30 slow=120 score=4 postEvent=120"]
+    ] as const) {
+      await writeFile(
+        join(artifactsDir, "paper", `paper-report-2026-04-12T0${index}-00-00-000Z.json`),
+        JSON.stringify({
+          generatedAtUtc: `2026-04-12T0${index}:00:00.000Z`,
+          symbol: "MNQ",
+          strategyId: "SessionFilteredTrendPullback_v1",
+          config: {
+            path: `config/strategies/profile-${index}.json`,
+            sha256: sha,
+            summary
+          },
+          source: "PAPER",
+          run: {
+            startUtc: `2026-04-12T0${index}:00:00.000Z`,
+            endUtc: null,
+            processedThroughUtc: `2026-04-12T0${index}:00:00.000Z`,
+            newTradeCount: 1,
+            rejectedSignalCount: 0,
+            artifactVersion: "0.1.0"
+          },
+          activePosition: null,
+          runMetrics: {
+            tradeCount: 1,
+            winRate: 100,
+            netPnlUsd: index,
+            expectancyUsd: index,
+            profitFactor: 1.1,
+            maxDrawdownUsd: 0,
+            avgWinUsd: index,
+            avgLossUsd: 0,
+            rejectedSignalCount: 0,
+            sessionBreakdown: {
+              ASIA: { tradeCount: 0, netPnlUsd: 0 },
+              EUROPE: { tradeCount: 1, netPnlUsd: index },
+              US: { tradeCount: 0, netPnlUsd: 0 },
+              CLOSED: { tradeCount: 0, netPnlUsd: 0 }
+            },
+            sideBreakdown: {
+              BUY: { tradeCount: 1, netPnlUsd: index },
+              SELL: { tradeCount: 0, netPnlUsd: 0 }
+            }
+          },
+          cumulativeMetrics: {
+            tradeCount: 1,
+            winRate: 100,
+            netPnlUsd: index,
+            expectancyUsd: index,
+            profitFactor: 1.1,
+            maxDrawdownUsd: 0,
+            avgWinUsd: index,
+            avgLossUsd: 0,
+            rejectedSignalCount: 0,
+            sessionBreakdown: {
+              ASIA: { tradeCount: 0, netPnlUsd: 0 },
+              EUROPE: { tradeCount: 1, netPnlUsd: index },
+              US: { tradeCount: 0, netPnlUsd: 0 },
+              CLOSED: { tradeCount: 0, netPnlUsd: 0 }
+            },
+            sideBreakdown: {
+              BUY: { tradeCount: 1, netPnlUsd: index },
+              SELL: { tradeCount: 0, netPnlUsd: 0 }
+            }
+          },
+          dailyPerformance: [],
+          sessionPerformance: []
+        }),
+        "utf8"
+      );
+    }
+
+    const output: string[] = [];
+    await runCli(["artifacts", "--artifacts-dir", artifactsDir, "--limit", "1"], {
+      log: (message: string) => {
+        output.push(message);
+      }
+    });
+
+    expect(output.some((line) => line.includes("Limit: 1"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles shown: 1"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles total: 2"))).toBe(true);
+    expect((await readdir(artifactsDir)).includes("index-limit-1.json")).toBe(true);
+    const markdown = await readFile(join(artifactsDir, "index-limit-1.md"), "utf8");
+    expect(markdown).toContain("Limit: 1");
+    expect(markdown).toContain("Config profiles shown: 1");
+    expect(markdown).toContain("Config profiles total: 2");
+    expect(markdown).toContain("bbbbbbbbbbbb");
+    expect(markdown).not.toContain("aaaaaaaaaaaa");
+  });
+
+  it("shows only the latest config group when latest-only is enabled", async () => {
+    const { runCli } = await import("../src/cli/index.js");
+    const artifactsDir = await mkdtemp(join(tmpdir(), "artifact-index-latest-"));
+    tempDirs.push(artifactsDir);
+    await mkdir(join(artifactsDir, "paper"), { recursive: true });
+
+    for (const [index, sha] of [
+      [1, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+      [2, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]
+    ] as const) {
+      await writeFile(
+        join(artifactsDir, "paper", `paper-report-2026-04-12T0${index}-30-00-000Z.json`),
+        JSON.stringify({
+          generatedAtUtc: `2026-04-12T0${index}:30:00.000Z`,
+          symbol: "MNQ",
+          strategyId: "SessionFilteredTrendPullback_v1",
+          config: {
+            path: `config/strategies/profile-${index}.json`,
+            sha256: sha,
+            summary: `profile-${index}`
+          },
+          source: "PAPER",
+          run: {
+            startUtc: `2026-04-12T0${index}:30:00.000Z`,
+            endUtc: null,
+            processedThroughUtc: `2026-04-12T0${index}:30:00.000Z`,
+            newTradeCount: 1,
+            rejectedSignalCount: 0,
+            artifactVersion: "0.1.0"
+          },
+          activePosition: null,
+          runMetrics: {
+            tradeCount: 1,
+            winRate: 100,
+            netPnlUsd: index,
+            expectancyUsd: index,
+            profitFactor: 1.0,
+            maxDrawdownUsd: 0,
+            avgWinUsd: index,
+            avgLossUsd: 0,
+            rejectedSignalCount: 0,
+            sessionBreakdown: {
+              ASIA: { tradeCount: 0, netPnlUsd: 0 },
+              EUROPE: { tradeCount: 1, netPnlUsd: index },
+              US: { tradeCount: 0, netPnlUsd: 0 },
+              CLOSED: { tradeCount: 0, netPnlUsd: 0 }
+            },
+            sideBreakdown: {
+              BUY: { tradeCount: 1, netPnlUsd: index },
+              SELL: { tradeCount: 0, netPnlUsd: 0 }
+            }
+          },
+          cumulativeMetrics: {
+            tradeCount: 1,
+            winRate: 100,
+            netPnlUsd: index,
+            expectancyUsd: index,
+            profitFactor: 1.0,
+            maxDrawdownUsd: 0,
+            avgWinUsd: index,
+            avgLossUsd: 0,
+            rejectedSignalCount: 0,
+            sessionBreakdown: {
+              ASIA: { tradeCount: 0, netPnlUsd: 0 },
+              EUROPE: { tradeCount: 1, netPnlUsd: index },
+              US: { tradeCount: 0, netPnlUsd: 0 },
+              CLOSED: { tradeCount: 0, netPnlUsd: 0 }
+            },
+            sideBreakdown: {
+              BUY: { tradeCount: 1, netPnlUsd: index },
+              SELL: { tradeCount: 0, netPnlUsd: 0 }
+            }
+          },
+          dailyPerformance: [],
+          sessionPerformance: []
+        }),
+        "utf8"
+      );
+    }
+
+    const output: string[] = [];
+    await runCli(["artifacts", "--artifacts-dir", artifactsDir, "--latest-only"], {
+      log: (message: string) => {
+        output.push(message);
+      }
+    });
+
+    expect(output.some((line) => line.includes("Latest only: yes"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles shown: 1"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles total: 2"))).toBe(true);
+    expect((await readdir(artifactsDir)).includes("index-latest.json")).toBe(true);
+    const markdown = await readFile(join(artifactsDir, "index-latest.md"), "utf8");
+    expect(markdown).toContain("Latest only: yes");
+    expect(markdown).toContain("Config profiles shown: 1");
+    expect(markdown).toContain("profile-2");
+    expect(markdown).not.toContain("profile-1");
   });
 });
