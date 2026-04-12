@@ -30,7 +30,7 @@ import {
 import { ResearchReportRunner } from "../research/report.js";
 import { WalkForwardRunner } from "../research/walkforward.js";
 import { SqliteStore } from "../storage/sqliteStore.js";
-import type { ArtifactKind } from "../reporting/artifactIndex.js";
+import type { ArtifactKind, ArtifactSortBy } from "../reporting/artifactIndex.js";
 
 export function parseArgs(argv: string[]): Map<string, string> {
   const options = new Map<string, string>();
@@ -336,6 +336,14 @@ async function researchCommand(options: Map<string, string>, logger: Pick<Consol
 async function artifactsCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
   const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
   const configHash = options.get("config-hash") ?? null;
+  const rawSortBy = options.get("sort-by");
+  let sortBy: ArtifactSortBy = "generated_at";
+  if (rawSortBy !== undefined) {
+    if (rawSortBy !== "generated_at" && rawSortBy !== "net_pnl" && rawSortBy !== "expectancy") {
+      throw new Error("artifacts --sort-by must be one of: generated_at, net_pnl, expectancy");
+    }
+    sortBy = rawSortBy;
+  }
   const latestOnly = options.get("latest-only") === "true";
   const rawLimit = options.get("limit");
   let limit: number | null = null;
@@ -354,10 +362,11 @@ async function artifactsCommand(options: Map<string, string>, logger: Pick<Conso
   if (rawKind && !kind) {
     throw new Error("artifacts --kind must be one of: paper, research, walkforward");
   }
-  const result = await writeArtifactIndex(artifactsDir, configHash, kind, latestOnly, limit);
+  const result = await writeArtifactIndex(artifactsDir, configHash, kind, sortBy, latestOnly, limit);
   logger.log("Artifact index complete");
   logger.log(`Config hash filter: ${configHash ?? "none"}`);
   logger.log(`Kind filter: ${kind ?? "none"}`);
+  logger.log(`Sort by: ${sortBy}`);
   logger.log(`Latest only: ${latestOnly ? "yes" : "no"}`);
   logger.log(`Limit: ${limit ?? "none"}`);
   logger.log(`Paper reports: ${result.index.counts.paper}`);
@@ -375,7 +384,7 @@ async function artifactsCommand(options: Map<string, string>, logger: Pick<Conso
     logger.log(`Latest walk-forward: ${result.index.latest.walkforward.headline}`);
   }
   if (result.index.byConfigHash[0]) {
-    logger.log(`Latest config group: ${result.index.byConfigHash[0].summary} (${result.index.byConfigHash[0].sha256.slice(0, 12)})`);
+    logger.log(`Top config group: ${result.index.byConfigHash[0].summary} (${result.index.byConfigHash[0].sha256.slice(0, 12)})`);
   }
   logger.log(`Index JSON: ${result.jsonPath}`);
   logger.log(`Index Markdown: ${result.markdownPath}`);
@@ -409,7 +418,7 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
     default:
       logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper");
       logger.log('ingest options: --file <csv> [--db path] [--symbol MNQ] [--contract H26]');
-      logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward] [--latest-only] [--limit N]');
+      logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward] [--sort-by generated_at|net_pnl|expectancy] [--latest-only] [--limit N]');
       logger.log(`strategy options: [--config ${DEFAULT_STRATEGY_CONFIG_PATH}]`);
   }
 }

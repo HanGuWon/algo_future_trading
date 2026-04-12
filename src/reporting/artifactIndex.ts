@@ -10,6 +10,7 @@ import type {
 import type { WrittenArtifactPaths } from "./paperArtifacts.js";
 
 export type ArtifactKind = "paper" | "research" | "walkforward";
+export type ArtifactSortBy = "generated_at" | "net_pnl" | "expectancy";
 
 interface ArtifactLatestSummary {
   kind: ArtifactKind;
@@ -19,6 +20,8 @@ interface ArtifactLatestSummary {
   headline: string;
   details: string[];
   config: StrategyConfigReference | null;
+  netPnlUsd: number | null;
+  expectancyUsd: number | null;
 }
 
 interface ArtifactIndexFile {
@@ -26,6 +29,7 @@ interface ArtifactIndexFile {
   artifactsDir: string;
   configHashFilter: string | null;
   kindFilter: ArtifactKind | null;
+  sortBy: ArtifactSortBy;
   latestOnly: boolean;
   limit: number | null;
   counts: Record<ArtifactKind, number>;
@@ -70,6 +74,8 @@ function paperSummary(artifact: PaperReportArtifact, jsonPath: string, markdownP
     markdownPath,
     headline: `Paper: ${artifact.cumulativeMetrics.netPnlUsd.toFixed(2)} USD net, ${artifact.cumulativeMetrics.tradeCount} trades`,
     config: artifact.config ?? null,
+    netPnlUsd: artifact.cumulativeMetrics.netPnlUsd,
+    expectancyUsd: artifact.cumulativeMetrics.expectancyUsd,
     details: [
       `Config: ${artifact.config?.summary ?? "n/a"} (${artifact.config?.sha256.slice(0, 12) ?? "n/a"})`,
       `Processed through ${artifact.run.processedThroughUtc ?? "n/a"}`,
@@ -90,6 +96,8 @@ function researchSummary(
     markdownPath,
     headline: `Research: ${artifact.finalAssessment.recommendation}`,
     config: artifact.config ?? null,
+    netPnlUsd: artifact.walkforward.rolledUpMetrics.netPnlUsd,
+    expectancyUsd: artifact.walkforward.rolledUpMetrics.expectancyUsd,
     details: [
       `Config: ${artifact.config?.summary ?? "n/a"} (${artifact.config?.sha256.slice(0, 12) ?? "n/a"})`,
       `Baseline test expectancy ${artifact.baseline.test.metrics.expectancyUsd.toFixed(2)} USD`,
@@ -111,6 +119,8 @@ function walkforwardSummary(
     markdownPath,
     headline: `Walk-forward: ${selectedCount}/${artifact.windows.length} windows selected`,
     config: artifact.config ?? null,
+    netPnlUsd: artifact.rolledUpMetrics.netPnlUsd,
+    expectancyUsd: artifact.rolledUpMetrics.expectancyUsd,
     details: [
       `Config: ${artifact.config?.summary ?? "n/a"} (${artifact.config?.sha256.slice(0, 12) ?? "n/a"})`,
       `OOS net PnL ${artifact.rolledUpMetrics.netPnlUsd.toFixed(2)} USD`,
@@ -167,8 +177,21 @@ async function loadWalkForwardSummaries(dir: string, files: string[]): Promise<A
   );
 }
 
+function sortValue(summary: ArtifactLatestSummary, sortBy: ArtifactSortBy): number {
+  switch (sortBy) {
+    case "net_pnl":
+      return summary.netPnlUsd ?? Number.NEGATIVE_INFINITY;
+    case "expectancy":
+      return summary.expectancyUsd ?? Number.NEGATIVE_INFINITY;
+    case "generated_at":
+    default:
+      return new Date(summary.generatedAtUtc).getTime();
+  }
+}
+
 function buildConfigGroups(
-  summaries: ArtifactLatestSummary[]
+  summaries: ArtifactLatestSummary[],
+  sortBy: ArtifactSortBy
 ): ArtifactConfigGroupSummary[] {
   const grouped = new Map<string, ArtifactConfigGroupSummary>();
 
@@ -194,14 +217,13 @@ function buildConfigGroups(
   }
 
   return [...grouped.values()].sort((left, right) => {
-    const leftLatest = Math.max(
-      ...Object.values(left.latest).map((item) => new Date(item!.generatedAtUtc).getTime()),
-      0
-    );
-    const rightLatest = Math.max(
-      ...Object.values(right.latest).map((item) => new Date(item!.generatedAtUtc).getTime()),
-      0
-    );
+    const leftRank = Math.max(...Object.values(left.latest).map((item) => sortValue(item!, sortBy)), Number.NEGATIVE_INFINITY);
+    const rightRank = Math.max(...Object.values(right.latest).map((item) => sortValue(item!, sortBy)), Number.NEGATIVE_INFINITY);
+    if (leftRank !== rightRank) {
+      return rightRank - leftRank;
+    }
+    const leftLatest = Math.max(...Object.values(left.latest).map((item) => new Date(item!.generatedAtUtc).getTime()), 0);
+    const rightLatest = Math.max(...Object.values(right.latest).map((item) => new Date(item!.generatedAtUtc).getTime()), 0);
     if (leftLatest !== rightLatest) {
       return rightLatest - leftLatest;
     }
@@ -210,7 +232,7 @@ function buildConfigGroups(
 }
 
 export async function buildArtifactIndex(artifactsDir = DEFAULT_ARTIFACTS_DIR): Promise<ArtifactIndexFile> {
-  return buildArtifactIndexWithFilter(artifactsDir, null, null, false, null);
+  return buildArtifactIndexWithFilter(artifactsDir, null, null, "generated_at", false, null);
 }
 
 function matchesConfigHash(summary: ArtifactLatestSummary, configHashFilter: string | null): boolean {
@@ -244,6 +266,7 @@ export async function buildArtifactIndexWithFilter(
   artifactsDir = DEFAULT_ARTIFACTS_DIR,
   configHashFilter: string | null = null,
   kindFilter: ArtifactKind | null = null,
+  sortBy: ArtifactSortBy = "generated_at",
   latestOnly = false,
   limit: number | null = null
 ): Promise<ArtifactIndexFile> {
@@ -267,7 +290,7 @@ export async function buildArtifactIndexWithFilter(
   const filteredSummaries = allSummaries
     .filter((summary) => matchesConfigHash(summary, configHashFilter))
     .filter((summary) => matchesKind(summary, kindFilter));
-  const filteredConfigGroups = buildConfigGroups(filteredSummaries);
+  const filteredConfigGroups = buildConfigGroups(filteredSummaries, sortBy);
   const totalConfigProfiles = filteredConfigGroups.length;
   const effectiveLimit = latestOnly ? 1 : limit;
   const byConfigHash =
@@ -278,6 +301,7 @@ export async function buildArtifactIndexWithFilter(
     artifactsDir,
     configHashFilter,
     kindFilter,
+    sortBy,
     latestOnly,
     limit,
     counts: {
@@ -299,6 +323,7 @@ export function renderArtifactIndexMarkdown(index: ArtifactIndexFile): string {
     `- Artifacts dir: ${index.artifactsDir}`,
     `- Config hash filter: ${index.configHashFilter ?? "none"}`,
     `- Kind filter: ${index.kindFilter ?? "none"}`,
+    `- Sort by: ${index.sortBy}`,
     `- Latest only: ${index.latestOnly ? "yes" : "no"}`,
     `- Limit: ${index.limit ?? "none"}`,
     ``,
@@ -358,14 +383,16 @@ export async function writeArtifactIndex(
   artifactsDir = DEFAULT_ARTIFACTS_DIR,
   configHashFilter: string | null = null,
   kindFilter: ArtifactKind | null = null,
+  sortBy: ArtifactSortBy = "generated_at",
   latestOnly = false,
   limit: number | null = null
 ): Promise<WrittenArtifactPaths & { index: ArtifactIndexFile }> {
-  const index = await buildArtifactIndexWithFilter(artifactsDir, configHashFilter, kindFilter, latestOnly, limit);
+  const index = await buildArtifactIndexWithFilter(artifactsDir, configHashFilter, kindFilter, sortBy, latestOnly, limit);
   await mkdir(artifactsDir, { recursive: true });
   const suffixParts = [
     configHashFilter,
     kindFilter,
+    sortBy === "generated_at" ? null : `sort-${sortBy.replace(/_/g, "-")}`,
     latestOnly ? "latest" : null,
     limit === null ? null : `limit-${limit}`
   ].filter((value): value is string => Boolean(value));

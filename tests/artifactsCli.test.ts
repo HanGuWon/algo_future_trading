@@ -291,7 +291,7 @@ describe("artifacts CLI", () => {
     expect(output.some((line) => line.includes("Latest walk-forward:"))).toBe(true);
     expect(output.some((line) => line.includes("Config profiles shown: 3"))).toBe(true);
     expect(output.some((line) => line.includes("Config profiles total: 3"))).toBe(true);
-    expect(output.some((line) => line.includes("Latest config group:"))).toBe(true);
+    expect(output.some((line) => line.includes("Top config group:"))).toBe(true);
 
     const topFiles = await readdir(artifactsDir);
     expect(topFiles).toContain("index.json");
@@ -825,5 +825,105 @@ describe("artifacts CLI", () => {
     expect(markdown).toContain("Config profiles shown: 1");
     expect(markdown).toContain("profile-2");
     expect(markdown).not.toContain("profile-1");
+  });
+
+  it("sorts config groups by net pnl when requested", async () => {
+    const { runCli } = await import("../src/cli/index.js");
+    const artifactsDir = await mkdtemp(join(tmpdir(), "artifact-index-sort-"));
+    tempDirs.push(artifactsDir);
+    await mkdir(join(artifactsDir, "paper"), { recursive: true });
+
+    await writeFile(
+      join(artifactsDir, "paper", "paper-report-2026-04-12T01-00-00-000Z.json"),
+      JSON.stringify({
+        generatedAtUtc: "2026-04-12T01:00:00.000Z",
+        symbol: "MNQ",
+        strategyId: "SessionFilteredTrendPullback_v1",
+        config: {
+          path: "config/strategies/profile-1.json",
+          sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          summary: "older-high-pnl"
+        },
+        source: "PAPER",
+        run: {
+          startUtc: "2026-04-12T01:00:00.000Z",
+          endUtc: null,
+          processedThroughUtc: "2026-04-12T01:00:00.000Z",
+          newTradeCount: 1,
+          rejectedSignalCount: 0,
+          artifactVersion: "0.1.0"
+        },
+        activePosition: null,
+        runMetrics: {
+          tradeCount: 1, winRate: 100, netPnlUsd: 100, expectancyUsd: 100, profitFactor: 1.5, maxDrawdownUsd: 0,
+          avgWinUsd: 100, avgLossUsd: 0, rejectedSignalCount: 0,
+          sessionBreakdown: { ASIA: { tradeCount: 0, netPnlUsd: 0 }, EUROPE: { tradeCount: 1, netPnlUsd: 100 }, US: { tradeCount: 0, netPnlUsd: 0 }, CLOSED: { tradeCount: 0, netPnlUsd: 0 } },
+          sideBreakdown: { BUY: { tradeCount: 1, netPnlUsd: 100 }, SELL: { tradeCount: 0, netPnlUsd: 0 } }
+        },
+        cumulativeMetrics: {
+          tradeCount: 1, winRate: 100, netPnlUsd: 100, expectancyUsd: 100, profitFactor: 1.5, maxDrawdownUsd: 0,
+          avgWinUsd: 100, avgLossUsd: 0, rejectedSignalCount: 0,
+          sessionBreakdown: { ASIA: { tradeCount: 0, netPnlUsd: 0 }, EUROPE: { tradeCount: 1, netPnlUsd: 100 }, US: { tradeCount: 0, netPnlUsd: 0 }, CLOSED: { tradeCount: 0, netPnlUsd: 0 } },
+          sideBreakdown: { BUY: { tradeCount: 1, netPnlUsd: 100 }, SELL: { tradeCount: 0, netPnlUsd: 0 } }
+        },
+        dailyPerformance: [],
+        sessionPerformance: []
+      }),
+      "utf8"
+    );
+
+    await writeFile(
+      join(artifactsDir, "paper", "paper-report-2026-04-12T02-00-00-000Z.json"),
+      JSON.stringify({
+        generatedAtUtc: "2026-04-12T02:00:00.000Z",
+        symbol: "MNQ",
+        strategyId: "SessionFilteredTrendPullback_v1",
+        config: {
+          path: "config/strategies/profile-2.json",
+          sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          summary: "newer-low-pnl"
+        },
+        source: "PAPER",
+        run: {
+          startUtc: "2026-04-12T02:00:00.000Z",
+          endUtc: null,
+          processedThroughUtc: "2026-04-12T02:00:00.000Z",
+          newTradeCount: 1,
+          rejectedSignalCount: 0,
+          artifactVersion: "0.1.0"
+        },
+        activePosition: null,
+        runMetrics: {
+          tradeCount: 1, winRate: 100, netPnlUsd: 10, expectancyUsd: 10, profitFactor: 1.1, maxDrawdownUsd: 0,
+          avgWinUsd: 10, avgLossUsd: 0, rejectedSignalCount: 0,
+          sessionBreakdown: { ASIA: { tradeCount: 0, netPnlUsd: 0 }, EUROPE: { tradeCount: 1, netPnlUsd: 10 }, US: { tradeCount: 0, netPnlUsd: 0 }, CLOSED: { tradeCount: 0, netPnlUsd: 0 } },
+          sideBreakdown: { BUY: { tradeCount: 1, netPnlUsd: 10 }, SELL: { tradeCount: 0, netPnlUsd: 0 } }
+        },
+        cumulativeMetrics: {
+          tradeCount: 1, winRate: 100, netPnlUsd: 10, expectancyUsd: 10, profitFactor: 1.1, maxDrawdownUsd: 0,
+          avgWinUsd: 10, avgLossUsd: 0, rejectedSignalCount: 0,
+          sessionBreakdown: { ASIA: { tradeCount: 0, netPnlUsd: 0 }, EUROPE: { tradeCount: 1, netPnlUsd: 10 }, US: { tradeCount: 0, netPnlUsd: 0 }, CLOSED: { tradeCount: 0, netPnlUsd: 0 } },
+          sideBreakdown: { BUY: { tradeCount: 1, netPnlUsd: 10 }, SELL: { tradeCount: 0, netPnlUsd: 0 } }
+        },
+        dailyPerformance: [],
+        sessionPerformance: []
+      }),
+      "utf8"
+    );
+
+    const output: string[] = [];
+    await runCli(["artifacts", "--artifacts-dir", artifactsDir, "--sort-by", "net_pnl"], {
+      log: (message: string) => {
+        output.push(message);
+      }
+    });
+
+    expect(output.some((line) => line.includes("Sort by: net_pnl"))).toBe(true);
+    expect(output.some((line) => line.includes("Top config group: older-high-pnl"))).toBe(true);
+    expect((await readdir(artifactsDir)).includes("index-sort-net-pnl.json")).toBe(true);
+    const markdown = await readFile(join(artifactsDir, "index-sort-net-pnl.md"), "utf8");
+    expect(markdown).toContain("Sort by: net_pnl");
+    const byConfigHashSection = markdown.slice(markdown.indexOf("## By Config Hash"));
+    expect(byConfigHashSection.indexOf("older-high-pnl")).toBeLessThan(byConfigHashSection.indexOf("newer-low-pnl"));
   });
 });

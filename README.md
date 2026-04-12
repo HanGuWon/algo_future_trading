@@ -20,6 +20,7 @@ npm run walkforward -- --db data/mnq-research.sqlite --config config/strategies/
 npm run artifacts -- --artifacts-dir artifacts
 npm run artifacts -- --artifacts-dir artifacts --config-hash aaaaaaaa
 npm run artifacts -- --artifacts-dir artifacts --kind paper
+npm run artifacts -- --artifacts-dir artifacts --sort-by net_pnl
 npm run artifacts -- --artifacts-dir artifacts --latest-only
 npm run artifacts -- --artifacts-dir artifacts --limit 5
 npm run research -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts
@@ -54,6 +55,7 @@ npm run ingest -- --file path/to/mnq_1m.csv --db data/mnq-research.sqlite --cont
 - `artifacts` also groups the latest `paper`, `research`, and `walkforward` outputs by strategy config hash so different parameter profiles can be compared safely.
 - `artifacts --config-hash <prefix>` narrows the index to one config family and writes `artifacts/index-<prefix>.json|md`.
 - `artifacts --kind paper|research|walkforward` narrows the index to one artifact class and can be combined with `--config-hash`.
+- `artifacts --sort-by generated_at|net_pnl|expectancy` changes how config groups are ranked in the grouped summary.
 - `artifacts --latest-only` shows only the newest config group in the grouped summary while keeping overall counts intact.
 - `artifacts --limit N` truncates the grouped config-hash section to the first `N` profiles after sorting by newest artifact activity.
 - `research` runs one bundled decision report over acceptance split, walk-forward OOS, sensitivity, and event-filter comparison.
