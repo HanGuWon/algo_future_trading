@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,6 +22,11 @@ describe("artifacts CLI", () => {
       JSON.stringify({
         generatedAtUtc: "2026-04-11T00:00:00.000Z",
         symbol: "MNQ",
+        config: {
+          path: "config/strategies/session-filtered-trend-pullback-v1.research-tight.json",
+          sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          summary: "fast=30 slow=120 score=4 postEvent=120"
+        },
         mode: "grid",
         sourceRange: {
           startUtc: "2026-01-01T00:00:00.000Z",
@@ -70,6 +75,11 @@ describe("artifacts CLI", () => {
         generatedAtUtc: "2026-04-11T00:00:00.000Z",
         symbol: "MNQ",
         strategyId: "SessionFilteredTrendPullback_v1",
+        config: {
+          path: "config/strategies/session-filtered-trend-pullback-v1.json",
+          sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          summary: "fast=20 slow=120 score=3 postEvent=60"
+        },
         source: "PAPER",
         run: {
           startUtc: "2026-04-10T00:00:00.000Z",
@@ -135,6 +145,11 @@ describe("artifacts CLI", () => {
         generatedAtUtc: "2026-04-11T00:00:00.000Z",
         symbol: "MNQ",
         strategyId: "SessionFilteredTrendPullback_v1",
+        config: {
+          path: "config/strategies/session-filtered-trend-pullback-v1.json",
+          sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          summary: "fast=20 slow=120 score=3 postEvent=60"
+        },
         baseline: {
           train: {
             slice: "train",
@@ -278,5 +293,8 @@ describe("artifacts CLI", () => {
     const topFiles = await readdir(artifactsDir);
     expect(topFiles).toContain("index.json");
     expect(topFiles).toContain("index.md");
+    const indexMarkdown = await readFile(join(artifactsDir, "index.md"), "utf8");
+    expect(indexMarkdown).toContain("fast=20 slow=120 score=3 postEvent=60");
+    expect(indexMarkdown).toContain("aaaaaaaaaaaa");
   });
 });

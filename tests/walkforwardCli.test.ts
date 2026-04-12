@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -62,5 +62,18 @@ describe("walk-forward CLI", () => {
     expect(output.some((line) => line.includes("Strategy params: fast=30 slow=120 score=4 postEvent=120"))).toBe(true);
     expect(output.some((line) => line.includes("Artifact JSON:"))).toBe(true);
     expect(output.some((line) => line.includes("Artifact Markdown:"))).toBe(true);
+
+    const entries = await readdir(artifactsDir);
+    const jsonName = entries.find((entry) => entry.endsWith(".json") && entry.startsWith("walkforward-"));
+    const markdownName = entries.find((entry) => entry.endsWith(".md") && entry.startsWith("walkforward-"));
+    expect(jsonName).toBeTruthy();
+    expect(markdownName).toBeTruthy();
+    const parsed = JSON.parse(await readFile(join(artifactsDir, jsonName!), "utf8")) as {
+      config?: { path: string; sha256: string };
+    };
+    expect(parsed.config?.path).toContain("session-filtered-trend-pullback-v1.research-tight.json");
+    expect(parsed.config?.sha256).toHaveLength(64);
+    const markdown = await readFile(join(artifactsDir, markdownName!), "utf8");
+    expect(markdown).toContain("Config SHA256:");
   });
 });

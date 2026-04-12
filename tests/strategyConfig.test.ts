@@ -16,13 +16,15 @@ describe("strategy config loader", () => {
   });
 
   it("loads the repository default strategy profile", async () => {
-    const { config, resolvedPath } = await loadStrategyConfig();
+    const { config, resolvedPath, reference } = await loadStrategyConfig();
 
     expect(resolvedPath).toBe(resolveStrategyConfigPath(DEFAULT_STRATEGY_CONFIG_PATH));
     expect(config.maFast).toBe(20);
     expect(config.maSlow).toBe(120);
     expect(config.confluenceThreshold).toBe(3);
     expect(config.eventBlackoutMinutesAfter).toBe(60);
+    expect(reference.sha256).toHaveLength(64);
+    expect(reference.summary).toBe("fast=20 slow=120 score=3 postEvent=60");
   });
 
   it("merges a partial override profile onto the default config", async () => {
@@ -40,12 +42,14 @@ describe("strategy config loader", () => {
       "utf8"
     );
 
-    const { config } = await loadStrategyConfig(configPath);
+    const { config, reference } = await loadStrategyConfig(configPath);
     expect(config.maFast).toBe(30);
     expect(config.maSlow).toBe(120);
     expect(config.confluenceThreshold).toBe(4);
     expect(config.eventBlackoutMinutesAfter).toBe(120);
     expect(config.riskPctPerTrade).toBe(0.0025);
+    expect(reference.path).toBe(configPath);
+    expect(reference.summary).toBe("fast=30 slow=120 score=4 postEvent=120");
   });
 
   it("rejects invalid profiles", async () => {

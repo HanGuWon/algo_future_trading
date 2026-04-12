@@ -58,6 +58,8 @@ export function renderPaperArtifactMarkdown(artifact: PaperReportArtifact): stri
     `- Generated: ${artifact.generatedAtUtc}`,
     `- Symbol: ${artifact.symbol}`,
     `- Strategy: ${artifact.strategyId}`,
+    `- Config: ${artifact.config?.path ?? "n/a"}`,
+    `- Config SHA256: ${artifact.config?.sha256 ?? "n/a"}`,
     `- Processed Through: ${artifact.run.processedThroughUtc ?? "n/a"}`,
     `- Recommendation Context: paper execution summary`,
     ``,

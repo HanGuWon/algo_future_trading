@@ -197,6 +197,12 @@ export interface StrategyConfig {
   eventBlackoutMinutesAfter: number;
 }
 
+export interface StrategyConfigReference {
+  path: string;
+  sha256: string;
+  summary: string;
+}
+
 export interface AccountState {
   equityUsd: number;
   startOfDayEquityUsd: number;
@@ -290,6 +296,7 @@ export interface PaperReportArtifact {
   generatedAtUtc: string;
   symbol: string;
   strategyId: StrategyId;
+  config?: StrategyConfigReference;
   source: TradeSource;
   run: {
     startUtc: string;
@@ -355,6 +362,7 @@ export interface ResearchReportArtifact {
   generatedAtUtc: string;
   symbol: string;
   strategyId: StrategyId;
+  config?: StrategyConfigReference;
   baseline: {
     train: AcceptanceSliceResult;
     validation: AcceptanceSliceResult;
@@ -423,6 +431,7 @@ export interface WindowSelectionResult {
 export interface WalkForwardArtifact {
   generatedAtUtc: string;
   symbol: string;
+  config?: StrategyConfigReference;
   mode: "fixed" | "grid";
   sourceRange: DateRange;
   windowSpec: {

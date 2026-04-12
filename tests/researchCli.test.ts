@@ -197,9 +197,12 @@ describe("research CLI", () => {
       expect(markdownName).toBeTruthy();
       const raw = await readFile(join(artifactsDir, "research", jsonName!), "utf8");
       const parsed = JSON.parse(raw) as ResearchReportArtifact;
+      expect(parsed.config?.path).toContain("config\\strategies\\session-filtered-trend-pullback-v1.json");
+      expect(parsed.config?.sha256).toHaveLength(64);
       expect(parsed.finalAssessment.recommendation).toBe("continue_paper");
       const markdown = await readFile(join(artifactsDir, "research", markdownName!), "utf8");
       expect(markdown).toContain("# Research Report");
+      expect(markdown).toContain("Config SHA256:");
       expect(markdown).toContain("## Final Assessment");
     } finally {
       store.close();

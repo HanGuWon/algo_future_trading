@@ -118,15 +118,19 @@ describe("paper CLI", () => {
     expect(markdownName).toBeTruthy();
     const artifactRaw = await readFile(join(artifactsDir, "paper", jsonName!), "utf8");
     const artifact = JSON.parse(artifactRaw) as {
+      config?: { path: string; sha256: string };
       run: { newTradeCount: number };
       dailyPerformance: Array<{ tradeCount: number }>;
       sessionPerformance: Array<{ sessionLabel: string }>;
     };
+    expect(artifact.config?.path).toContain("config\\strategies\\session-filtered-trend-pullback-v1.json");
+    expect(artifact.config?.sha256).toHaveLength(64);
     expect(artifact.run.newTradeCount).toBe(1);
     expect(artifact.dailyPerformance[0]?.tradeCount).toBe(1);
     expect(artifact.sessionPerformance.some((row) => row.sessionLabel === "EUROPE")).toBe(true);
     const markdownRaw = await readFile(join(artifactsDir, "paper", markdownName!), "utf8");
     expect(markdownRaw).toContain("# Paper Report");
+    expect(markdownRaw).toContain("Config SHA256:");
     expect(markdownRaw).toContain("## Daily Performance");
   });
 });

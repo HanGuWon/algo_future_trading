@@ -47,6 +47,7 @@ function paperSummary(artifact: PaperReportArtifact, jsonPath: string, markdownP
     markdownPath,
     headline: `Paper: ${artifact.cumulativeMetrics.netPnlUsd.toFixed(2)} USD net, ${artifact.cumulativeMetrics.tradeCount} trades`,
     details: [
+      `Config: ${artifact.config?.summary ?? "n/a"} (${artifact.config?.sha256.slice(0, 12) ?? "n/a"})`,
       `Processed through ${artifact.run.processedThroughUtc ?? "n/a"}`,
       `Active position: ${artifact.activePosition ? `${artifact.activePosition.status} ${artifact.activePosition.side}` : "none"}`
     ]
@@ -65,6 +66,7 @@ function researchSummary(
     markdownPath,
     headline: `Research: ${artifact.finalAssessment.recommendation}`,
     details: [
+      `Config: ${artifact.config?.summary ?? "n/a"} (${artifact.config?.sha256.slice(0, 12) ?? "n/a"})`,
       `Baseline test expectancy ${artifact.baseline.test.metrics.expectancyUsd.toFixed(2)} USD`,
       `Walk-forward OOS expectancy ${artifact.walkforward.rolledUpMetrics.expectancyUsd.toFixed(2)} USD`
     ]
@@ -84,6 +86,7 @@ function walkforwardSummary(
     markdownPath,
     headline: `Walk-forward: ${selectedCount}/${artifact.windows.length} windows selected`,
     details: [
+      `Config: ${artifact.config?.summary ?? "n/a"} (${artifact.config?.sha256.slice(0, 12) ?? "n/a"})`,
       `OOS net PnL ${artifact.rolledUpMetrics.netPnlUsd.toFixed(2)} USD`,
       `OOS expectancy ${artifact.rolledUpMetrics.expectancyUsd.toFixed(2)} USD`
     ]

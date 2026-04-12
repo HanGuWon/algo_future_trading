@@ -55,12 +55,17 @@ function getNumberOption(options: Map<string, string>, key: string, fallback: nu
 
 async function loadCliStrategyContext(
   options: Map<string, string>
-): Promise<{ configPath: string; config: Awaited<ReturnType<typeof loadStrategyConfig>>["config"] }> {
+): Promise<{
+  configPath: string;
+  config: Awaited<ReturnType<typeof loadStrategyConfig>>["config"];
+  reference: Awaited<ReturnType<typeof loadStrategyConfig>>["reference"];
+}> {
   const configPath = options.get("config") ?? DEFAULT_STRATEGY_CONFIG_PATH;
   const loaded = await loadStrategyConfig(configPath);
   return {
     configPath: loaded.resolvedPath,
-    config: loaded.config
+    config: loaded.config,
+    reference: loaded.reference
   };
 }
 
@@ -193,6 +198,7 @@ async function paperCommand(options: Map<string, string>, logger: Pick<Console, 
         generatedAtUtc: new Date().toISOString(),
         symbol: MNQ_SPEC.symbol,
         strategyId: strategy.config.strategyId,
+        config: strategy.reference,
         source: "PAPER",
         run: {
           startUtc: priorState?.processedThroughUtc ?? result.finalState.paperStartUtc,
@@ -267,6 +273,7 @@ async function walkforwardCommand(options: Map<string, string>, logger: Pick<Con
       strategy.config
     );
     const artifact = runner.run();
+    artifact.config = strategy.reference;
     const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
     const artifactPaths = await writeWalkForwardArtifacts(artifact, artifactsDir);
 
@@ -299,6 +306,7 @@ async function researchCommand(options: Map<string, string>, logger: Pick<Consol
       baseConfig: strategy.config
     });
     const artifact = runner.run();
+    artifact.config = strategy.reference;
     const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
     const artifactPaths = await writeResearchArtifact(artifact, artifactsDir);
 

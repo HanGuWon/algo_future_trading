@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { DEFAULT_STRATEGY_CONFIG, DEFAULT_STRATEGY_CONFIG_PATH } from "./defaults.js";
-import type { StrategyConfig } from "../types.js";
+import type { StrategyConfig, StrategyConfigReference } from "../types.js";
 
 const NON_NEGATIVE_INTEGER_KEYS: Array<keyof StrategyConfig> = [
   "maFast",
@@ -105,7 +106,7 @@ export function validateStrategyConfig(config: StrategyConfig, sourcePath: strin
 
 export async function loadStrategyConfig(
   configPath = DEFAULT_STRATEGY_CONFIG_PATH
-): Promise<{ config: StrategyConfig; resolvedPath: string }> {
+): Promise<{ config: StrategyConfig; resolvedPath: string; reference: StrategyConfigReference }> {
   const resolvedPath = resolveStrategyConfigPath(configPath);
   const raw = await readFile(resolvedPath, "utf8");
 
@@ -125,13 +126,27 @@ export async function loadStrategyConfig(
     ...DEFAULT_STRATEGY_CONFIG,
     ...(parsed as StrategyConfigOverride)
   };
+  const validated = validateStrategyConfig(mergedConfig, resolvedPath);
 
   return {
-    config: validateStrategyConfig(mergedConfig, resolvedPath),
-    resolvedPath
+    config: validated,
+    resolvedPath,
+    reference: buildStrategyConfigReference(validated, resolvedPath)
   };
 }
 
 export function describeStrategyConfig(config: StrategyConfig): string {
   return `fast=${config.maFast} slow=${config.maSlow} score=${config.confluenceThreshold} postEvent=${config.eventBlackoutMinutesAfter}`;
+}
+
+export function buildStrategyConfigReference(
+  config: StrategyConfig,
+  resolvedPath: string
+): StrategyConfigReference {
+  const normalized = JSON.stringify(config, Object.keys(config).sort());
+  return {
+    path: resolvedPath,
+    sha256: createHash("sha256").update(normalized).digest("hex"),
+    summary: describeStrategyConfig(config)
+  };
 }

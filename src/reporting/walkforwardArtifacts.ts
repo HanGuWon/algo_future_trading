@@ -34,6 +34,8 @@ export function renderWalkForwardArtifactMarkdown(artifact: WalkForwardArtifact)
     `- Generated: ${artifact.generatedAtUtc}`,
     `- Symbol: ${artifact.symbol}`,
     `- Mode: ${artifact.mode}`,
+    `- Config: ${artifact.config?.path ?? "n/a"}`,
+    `- Config SHA256: ${artifact.config?.sha256 ?? "n/a"}`,
     `- Selected windows: ${artifact.windows.filter((window) => window.status === "selected").length}/${artifact.windows.length}`,
     ``,
     `## OOS Summary`,

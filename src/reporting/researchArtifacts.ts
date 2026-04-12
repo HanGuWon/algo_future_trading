@@ -49,6 +49,8 @@ export function renderResearchArtifactMarkdown(artifact: ResearchReportArtifact)
     `- Generated: ${artifact.generatedAtUtc}`,
     `- Symbol: ${artifact.symbol}`,
     `- Strategy: ${artifact.strategyId}`,
+    `- Config: ${artifact.config?.path ?? "n/a"}`,
+    `- Config SHA256: ${artifact.config?.sha256 ?? "n/a"}`,
     `- Recommendation: ${artifact.finalAssessment.recommendation}`,
     ``,
     `## Baseline Acceptance`,
