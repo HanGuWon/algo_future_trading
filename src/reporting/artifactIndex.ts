@@ -24,6 +24,7 @@ interface ArtifactLatestSummary {
 interface ArtifactIndexFile {
   generatedAtUtc: string;
   artifactsDir: string;
+  configHashFilter: string | null;
   counts: Record<ArtifactKind, number>;
   latest: Partial<Record<ArtifactKind, ArtifactLatestSummary>>;
   byConfigHash: ArtifactConfigGroupSummary[];
@@ -205,6 +206,31 @@ function buildConfigGroups(
 }
 
 export async function buildArtifactIndex(artifactsDir = DEFAULT_ARTIFACTS_DIR): Promise<ArtifactIndexFile> {
+  return buildArtifactIndexWithFilter(artifactsDir, null);
+}
+
+function matchesConfigHash(summary: ArtifactLatestSummary, configHashFilter: string | null): boolean {
+  if (!configHashFilter) {
+    return true;
+  }
+  return summary.config?.sha256.startsWith(configHashFilter) ?? false;
+}
+
+function latestForKind(
+  kind: ArtifactKind,
+  summaries: ArtifactLatestSummary[],
+  configHashFilter: string | null
+): ArtifactLatestSummary | undefined {
+  return summaries
+    .filter((summary) => summary.kind === kind)
+    .filter((summary) => matchesConfigHash(summary, configHashFilter))
+    .sort(sortLatest)[0];
+}
+
+export async function buildArtifactIndexWithFilter(
+  artifactsDir = DEFAULT_ARTIFACTS_DIR,
+  configHashFilter: string | null = null
+): Promise<ArtifactIndexFile> {
   const paperDir = join(artifactsDir, "paper");
   const researchDir = join(artifactsDir, "research");
 
@@ -212,47 +238,32 @@ export async function buildArtifactIndex(artifactsDir = DEFAULT_ARTIFACTS_DIR): 
   const researchFiles = await safeList(researchDir);
   const rootFiles = await safeList(artifactsDir);
 
-  const latestPaperJson = latestByName(paperFiles.filter((entry) => entry.endsWith(".json")));
-  const latestPaperMd = latestByName(paperFiles.filter((entry) => entry.endsWith(".md")));
-  const latestResearchJson = latestByName(researchFiles.filter((entry) => entry.endsWith(".json")));
-  const latestResearchMd = latestByName(researchFiles.filter((entry) => entry.endsWith(".md")));
-  const latestWalkForwardJson = latestByName(rootFiles.filter((entry) => /^walkforward-.*\.json$/.test(entry)));
-  const latestWalkForwardMd = latestByName(rootFiles.filter((entry) => /^walkforward-.*\.md$/.test(entry)));
   const paperSummaries = await loadPaperSummaries(paperDir, paperFiles);
   const researchSummaries = await loadResearchSummaries(researchDir, researchFiles);
   const walkforwardSummaries = await loadWalkForwardSummaries(artifactsDir, rootFiles);
   const allSummaries = [...paperSummaries, ...researchSummaries, ...walkforwardSummaries];
 
   const latest: Partial<Record<ArtifactKind, ArtifactLatestSummary>> = {};
+  latest.paper = latestForKind("paper", allSummaries, configHashFilter);
+  latest.research = latestForKind("research", allSummaries, configHashFilter);
+  latest.walkforward = latestForKind("walkforward", allSummaries, configHashFilter);
 
-  if (latestPaperJson) {
-    latest.paper =
-      paperSummaries.find((summary) => summary.jsonPath === join(paperDir, latestPaperJson)) ??
-      (await loadPaperSummaries(paperDir, [latestPaperJson, ...(latestPaperMd ? [latestPaperMd] : [])]))[0];
-  }
-
-  if (latestResearchJson) {
-    latest.research =
-      researchSummaries.find((summary) => summary.jsonPath === join(researchDir, latestResearchJson)) ??
-      (await loadResearchSummaries(researchDir, [latestResearchJson, ...(latestResearchMd ? [latestResearchMd] : [])]))[0];
-  }
-
-  if (latestWalkForwardJson) {
-    latest.walkforward =
-      walkforwardSummaries.find((summary) => summary.jsonPath === join(artifactsDir, latestWalkForwardJson)) ??
-      (await loadWalkForwardSummaries(artifactsDir, [latestWalkForwardJson, ...(latestWalkForwardMd ? [latestWalkForwardMd] : [])]))[0];
-  }
+  const byConfigHash = buildConfigGroups(allSummaries).filter((group) =>
+    configHashFilter ? group.sha256.startsWith(configHashFilter) : true
+  );
+  const filteredSummaries = allSummaries.filter((summary) => matchesConfigHash(summary, configHashFilter));
 
   return {
     generatedAtUtc: new Date().toISOString(),
     artifactsDir,
+    configHashFilter,
     counts: {
-      paper: paperFiles.filter((entry) => entry.endsWith(".json")).length,
-      research: researchFiles.filter((entry) => entry.endsWith(".json")).length,
-      walkforward: rootFiles.filter((entry) => /^walkforward-.*\.json$/.test(entry)).length
+      paper: filteredSummaries.filter((summary) => summary.kind === "paper").length,
+      research: filteredSummaries.filter((summary) => summary.kind === "research").length,
+      walkforward: filteredSummaries.filter((summary) => summary.kind === "walkforward").length
     },
     latest,
-    byConfigHash: buildConfigGroups(allSummaries)
+    byConfigHash
   };
 }
 
@@ -262,6 +273,7 @@ export function renderArtifactIndexMarkdown(index: ArtifactIndexFile): string {
     ``,
     `- Generated: ${index.generatedAtUtc}`,
     `- Artifacts dir: ${index.artifactsDir}`,
+    `- Config hash filter: ${index.configHashFilter ?? "none"}`,
     ``,
     `## Counts`,
     ``,
@@ -314,11 +326,15 @@ export function renderArtifactIndexMarkdown(index: ArtifactIndexFile): string {
   return sections.join("\n");
 }
 
-export async function writeArtifactIndex(artifactsDir = DEFAULT_ARTIFACTS_DIR): Promise<WrittenArtifactPaths & { index: ArtifactIndexFile }> {
-  const index = await buildArtifactIndex(artifactsDir);
+export async function writeArtifactIndex(
+  artifactsDir = DEFAULT_ARTIFACTS_DIR,
+  configHashFilter: string | null = null
+): Promise<WrittenArtifactPaths & { index: ArtifactIndexFile }> {
+  const index = await buildArtifactIndexWithFilter(artifactsDir, configHashFilter);
   await mkdir(artifactsDir, { recursive: true });
-  const jsonPath = join(artifactsDir, "index.json");
-  const markdownPath = join(artifactsDir, "index.md");
+  const suffix = configHashFilter ? `-${configHashFilter}` : "";
+  const jsonPath = join(artifactsDir, `index${suffix}.json`);
+  const markdownPath = join(artifactsDir, `index${suffix}.md`);
   await writeFile(jsonPath, JSON.stringify(index, null, 2), "utf8");
   await writeFile(markdownPath, renderArtifactIndexMarkdown(index), "utf8");
   return {

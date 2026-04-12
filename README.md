@@ -18,6 +18,7 @@ npm run ingest -- --file path/to/mnq_1m.csv --db data/mnq-research.sqlite
 npm run backtest -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json
 npm run walkforward -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts
 npm run artifacts -- --artifacts-dir artifacts
+npm run artifacts -- --artifacts-dir artifacts --config-hash aaaaaaaa
 npm run research -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts
 npm run paper -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --start 2026-04-10T00:00:00.000Z
 ```
@@ -48,6 +49,7 @@ npm run ingest -- --file path/to/mnq_1m.csv --db data/mnq-research.sqlite --cont
 - `backtest` runs one config once; `walkforward` runs rolling train/validation/test windows and writes JSON artifacts.
 - `artifacts` scans the current artifact directory, builds `artifacts/index.json` and `artifacts/index.md`, and prints the latest paper/research/walk-forward summaries.
 - `artifacts` also groups the latest `paper`, `research`, and `walkforward` outputs by strategy config hash so different parameter profiles can be compared safely.
+- `artifacts --config-hash <prefix>` narrows the index to one config family and writes `artifacts/index-<prefix>.json|md`.
 - `research` runs one bundled decision report over acceptance split, walk-forward OOS, sensitivity, and event-filter comparison.
 - `paper` now keeps persistent account and order state in SQLite `paper_state` and resumes from the prior run.
 - `paper` processes newly available bars only logically; it does not open duplicate signals once `lastProcessedSignalTs` has advanced.

@@ -301,4 +301,166 @@ describe("artifacts CLI", () => {
     expect(indexMarkdown).toContain("aaaaaaaaaaaa");
     expect(indexMarkdown).toContain("cccccccccccc");
   });
+
+  it("filters the artifact index by config hash prefix", async () => {
+    const { runCli } = await import("../src/cli/index.js");
+    const artifactsDir = await mkdtemp(join(tmpdir(), "artifact-index-filter-"));
+    tempDirs.push(artifactsDir);
+    await mkdir(join(artifactsDir, "paper"), { recursive: true });
+    await writeFile(
+      join(artifactsDir, "paper", "paper-report-2026-04-12T00-00-00-000Z.json"),
+      JSON.stringify({
+        generatedAtUtc: "2026-04-12T00:00:00.000Z",
+        symbol: "MNQ",
+        strategyId: "SessionFilteredTrendPullback_v1",
+        config: {
+          path: "config/strategies/session-filtered-trend-pullback-v1.json",
+          sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          summary: "fast=20 slow=120 score=3 postEvent=60"
+        },
+        source: "PAPER",
+        run: {
+          startUtc: "2026-04-12T00:00:00.000Z",
+          endUtc: null,
+          processedThroughUtc: "2026-04-12T00:00:00.000Z",
+          newTradeCount: 1,
+          rejectedSignalCount: 0,
+          artifactVersion: "0.1.0"
+        },
+        activePosition: null,
+        runMetrics: {
+          tradeCount: 1,
+          winRate: 100,
+          netPnlUsd: 10,
+          expectancyUsd: 10,
+          profitFactor: 1.5,
+          maxDrawdownUsd: 0,
+          avgWinUsd: 10,
+          avgLossUsd: 0,
+          rejectedSignalCount: 0,
+          sessionBreakdown: {
+            ASIA: { tradeCount: 0, netPnlUsd: 0 },
+            EUROPE: { tradeCount: 1, netPnlUsd: 10 },
+            US: { tradeCount: 0, netPnlUsd: 0 },
+            CLOSED: { tradeCount: 0, netPnlUsd: 0 }
+          },
+          sideBreakdown: {
+            BUY: { tradeCount: 1, netPnlUsd: 10 },
+            SELL: { tradeCount: 0, netPnlUsd: 0 }
+          }
+        },
+        cumulativeMetrics: {
+          tradeCount: 1,
+          winRate: 100,
+          netPnlUsd: 10,
+          expectancyUsd: 10,
+          profitFactor: 1.5,
+          maxDrawdownUsd: 0,
+          avgWinUsd: 10,
+          avgLossUsd: 0,
+          rejectedSignalCount: 0,
+          sessionBreakdown: {
+            ASIA: { tradeCount: 0, netPnlUsd: 0 },
+            EUROPE: { tradeCount: 1, netPnlUsd: 10 },
+            US: { tradeCount: 0, netPnlUsd: 0 },
+            CLOSED: { tradeCount: 0, netPnlUsd: 0 }
+          },
+          sideBreakdown: {
+            BUY: { tradeCount: 1, netPnlUsd: 10 },
+            SELL: { tradeCount: 0, netPnlUsd: 0 }
+          }
+        },
+        dailyPerformance: [],
+        sessionPerformance: []
+      }),
+      "utf8"
+    );
+    await writeFile(join(artifactsDir, "paper", "paper-report-2026-04-12T00-00-00-000Z.md"), "# Paper Report", "utf8");
+    await mkdir(join(artifactsDir, "research"), { recursive: true });
+    await writeFile(
+      join(artifactsDir, "research", "research-report-2026-04-12T00-00-00-000Z.json"),
+      JSON.stringify({
+        generatedAtUtc: "2026-04-12T00:00:00.000Z",
+        symbol: "MNQ",
+        strategyId: "SessionFilteredTrendPullback_v1",
+        config: {
+          path: "config/strategies/session-filtered-trend-pullback-v1.research-tight.json",
+          sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          summary: "fast=30 slow=120 score=4 postEvent=120"
+        },
+        baseline: {
+          train: { slice: "train", range: { startUtc: "2018-01-01T00:00:00.000Z", endUtc: "2021-12-31T23:59:59.999Z" }, metrics: { tradeCount: 0, winRate: 0, netPnlUsd: 0, expectancyUsd: 0, profitFactor: null, maxDrawdownUsd: 0, avgWinUsd: 0, avgLossUsd: 0, rejectedSignalCount: 0, sessionBreakdown: { ASIA: { tradeCount: 0, netPnlUsd: 0 }, EUROPE: { tradeCount: 0, netPnlUsd: 0 }, US: { tradeCount: 0, netPnlUsd: 0 }, CLOSED: { tradeCount: 0, netPnlUsd: 0 } }, sideBreakdown: { BUY: { tradeCount: 0, netPnlUsd: 0 }, SELL: { tradeCount: 0, netPnlUsd: 0 } } } },
+          validation: { slice: "validation", range: { startUtc: "2022-01-01T00:00:00.000Z", endUtc: "2022-12-31T23:59:59.999Z" }, metrics: { tradeCount: 0, winRate: 0, netPnlUsd: 0, expectancyUsd: 0, profitFactor: null, maxDrawdownUsd: 0, avgWinUsd: 0, avgLossUsd: 0, rejectedSignalCount: 0, sessionBreakdown: { ASIA: { tradeCount: 0, netPnlUsd: 0 }, EUROPE: { tradeCount: 0, netPnlUsd: 0 }, US: { tradeCount: 0, netPnlUsd: 0 }, CLOSED: { tradeCount: 0, netPnlUsd: 0 } }, sideBreakdown: { BUY: { tradeCount: 0, netPnlUsd: 0 }, SELL: { tradeCount: 0, netPnlUsd: 0 } } } },
+          test: { slice: "test", range: { startUtc: "2023-01-01T00:00:00.000Z", endUtc: "2025-12-31T23:59:59.999Z" }, metrics: { tradeCount: 0, winRate: 0, netPnlUsd: 0, expectancyUsd: 0, profitFactor: null, maxDrawdownUsd: 0, avgWinUsd: 0, avgLossUsd: 0, rejectedSignalCount: 0, sessionBreakdown: { ASIA: { tradeCount: 0, netPnlUsd: 0 }, EUROPE: { tradeCount: 0, netPnlUsd: 0 }, US: { tradeCount: 0, netPnlUsd: 0 }, CLOSED: { tradeCount: 0, netPnlUsd: 0 } }, sideBreakdown: { BUY: { tradeCount: 0, netPnlUsd: 0 }, SELL: { tradeCount: 0, netPnlUsd: 0 } } } }
+        },
+        walkforward: {
+          mode: "grid",
+          windowCount: 0,
+          selectedWindowCount: 0,
+          rolledUpMetrics: {
+            tradeCount: 0,
+            winRate: 0,
+            netPnlUsd: 0,
+            expectancyUsd: 0,
+            profitFactor: null,
+            maxDrawdownUsd: 0,
+            avgWinUsd: 0,
+            avgLossUsd: 0,
+            rejectedSignalCount: 0,
+            sessionBreakdown: {
+              ASIA: { tradeCount: 0, netPnlUsd: 0 },
+              EUROPE: { tradeCount: 0, netPnlUsd: 0 },
+              US: { tradeCount: 0, netPnlUsd: 0 },
+              CLOSED: { tradeCount: 0, netPnlUsd: 0 }
+            },
+            sideBreakdown: {
+              BUY: { tradeCount: 0, netPnlUsd: 0 },
+              SELL: { tradeCount: 0, netPnlUsd: 0 }
+            }
+          },
+          windows: []
+        },
+        sensitivity: {
+          baselineCandidateId: "fast30_slow120_score4_post120",
+          baselineRank: 1,
+          totalCandidates: 1,
+          stableCandidateCount: 0,
+          topCandidates: []
+        },
+        eventComparison: {
+          range: { startUtc: "2022-01-01T00:00:00.000Z", endUtc: "2025-12-31T23:59:59.999Z" },
+          baselineScenario: "default",
+          scenarios: []
+        },
+        finalAssessment: {
+          baseline_test_positive_expectancy: false,
+          walkforward_oos_positive_expectancy: false,
+          parameter_stability_pass: false,
+          event_filter_dependence: "low",
+          recommendation: "research_more"
+        }
+      }),
+      "utf8"
+    );
+    await writeFile(join(artifactsDir, "research", "research-report-2026-04-12T00-00-00-000Z.md"), "# Research Report", "utf8");
+
+    const output: string[] = [];
+    await runCli(["artifacts", "--artifacts-dir", artifactsDir, "--config-hash", "aaaaaaaa"], {
+      log: (message: string) => {
+        output.push(message);
+      }
+    });
+
+    expect(output.some((line) => line.includes("Config hash filter: aaaaaaaa"))).toBe(true);
+    expect(output.some((line) => line.includes("Paper reports: 1"))).toBe(true);
+    expect(output.some((line) => line.includes("Research reports: 0"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles: 1"))).toBe(true);
+    expect(output.some((line) => line.includes("Latest paper:"))).toBe(true);
+    expect(output.some((line) => line.includes("Latest research:"))).toBe(false);
+    expect((await readdir(artifactsDir)).includes("index-aaaaaaaa.json")).toBe(true);
+    const filteredMarkdown = await readFile(join(artifactsDir, "index-aaaaaaaa.md"), "utf8");
+    expect(filteredMarkdown).toContain("Config hash filter: aaaaaaaa");
+    expect(filteredMarkdown).toContain("paper: Paper:");
+    expect(filteredMarkdown).toContain("research: none");
+  });
 });
