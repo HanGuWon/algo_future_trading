@@ -289,12 +289,16 @@ describe("artifacts CLI", () => {
     expect(output.some((line) => line.includes("Latest paper:"))).toBe(true);
     expect(output.some((line) => line.includes("Latest research:"))).toBe(true);
     expect(output.some((line) => line.includes("Latest walk-forward:"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles: 3"))).toBe(true);
+    expect(output.some((line) => line.includes("Latest config group:"))).toBe(true);
 
     const topFiles = await readdir(artifactsDir);
     expect(topFiles).toContain("index.json");
     expect(topFiles).toContain("index.md");
     const indexMarkdown = await readFile(join(artifactsDir, "index.md"), "utf8");
+    expect(indexMarkdown).toContain("## By Config Hash");
     expect(indexMarkdown).toContain("fast=20 slow=120 score=3 postEvent=60");
     expect(indexMarkdown).toContain("aaaaaaaaaaaa");
+    expect(indexMarkdown).toContain("cccccccccccc");
   });
 });

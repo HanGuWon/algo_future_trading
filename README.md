@@ -47,6 +47,7 @@ npm run ingest -- --file path/to/mnq_1m.csv --db data/mnq-research.sqlite --cont
 - The engine uses a back-adjusted research series for 1h features and raw execution bars for fills.
 - `backtest` runs one config once; `walkforward` runs rolling train/validation/test windows and writes JSON artifacts.
 - `artifacts` scans the current artifact directory, builds `artifacts/index.json` and `artifacts/index.md`, and prints the latest paper/research/walk-forward summaries.
+- `artifacts` also groups the latest `paper`, `research`, and `walkforward` outputs by strategy config hash so different parameter profiles can be compared safely.
 - `research` runs one bundled decision report over acceptance split, walk-forward OOS, sensitivity, and event-filter comparison.
 - `paper` now keeps persistent account and order state in SQLite `paper_state` and resumes from the prior run.
 - `paper` processes newly available bars only logically; it does not open duplicate signals once `lastProcessedSignalTs` has advanced.

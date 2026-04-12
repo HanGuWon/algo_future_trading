@@ -339,6 +339,7 @@ async function artifactsCommand(options: Map<string, string>, logger: Pick<Conso
   logger.log(`Paper reports: ${result.index.counts.paper}`);
   logger.log(`Research reports: ${result.index.counts.research}`);
   logger.log(`Walk-forward reports: ${result.index.counts.walkforward}`);
+  logger.log(`Config profiles: ${result.index.byConfigHash.length}`);
   if (result.index.latest.paper) {
     logger.log(`Latest paper: ${result.index.latest.paper.headline}`);
   }
@@ -347,6 +348,9 @@ async function artifactsCommand(options: Map<string, string>, logger: Pick<Conso
   }
   if (result.index.latest.walkforward) {
     logger.log(`Latest walk-forward: ${result.index.latest.walkforward.headline}`);
+  }
+  if (result.index.byConfigHash[0]) {
+    logger.log(`Latest config group: ${result.index.byConfigHash[0].summary} (${result.index.byConfigHash[0].sha256.slice(0, 12)})`);
   }
   logger.log(`Index JSON: ${result.jsonPath}`);
   logger.log(`Index Markdown: ${result.markdownPath}`);
