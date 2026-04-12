@@ -550,3 +550,20 @@ export interface BatchRunArtifact {
   ingestionSummary: BatchIngestionSummary | null;
   steps: BatchStepResult[];
 }
+
+export interface LatestArtifactPointers {
+  batchJsonPath: string | null;
+  paperJsonPath: string | null;
+  researchJsonPath: string | null;
+}
+
+export interface DailyRunSummary {
+  generatedAtUtc: string;
+  batchStatus: BatchRunArtifact["status"];
+  failedStep: BatchRunArtifact["failedStep"];
+  ingestionSummary: BatchIngestionSummary | null;
+  paperNewTrades: number | null;
+  researchRecommendation: ResearchReportArtifact["finalAssessment"]["recommendation"] | null;
+  researchGatePass: boolean | null;
+  artifactPaths: LatestArtifactPointers;
+}

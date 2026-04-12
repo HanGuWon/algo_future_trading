@@ -31,6 +31,7 @@ npm run research -- --db data/mnq-research.sqlite --config config/strategies/ses
 npm run paper -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --start 2026-04-10T00:00:00.000Z
 npm run batch -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts
 npm run batch -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts --input-dir data/mnq_drop
+npm run daily -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts --input-dir data/mnq_drop
 ```
 
 Expected CSV columns:
@@ -93,6 +94,21 @@ Directory ingest notes:
 - `paper`, `research`, and `walkforward` artifacts all record run provenance: git commit, Node version, DB path, event window count, input mode/path, and source range.
 - `batch` chains `sync-calendars`, optional `ingest`, `paper`, `research`, and `artifacts`, then writes a JSON summary under `artifacts/batch/`.
 - `batch --input-dir <folder>` uses incremental directory ingest and records a daily intake summary: scanned files, new files, skipped files, failed files, inserted bars, and source range.
+- `daily` wraps `batch`, then reads the latest `batch`, `paper`, and `research` artifacts and prints a short fixed-format summary for automation use.
+- `daily` keeps the same success/failure behavior as `batch`: success exits `0`, failed batch steps still surface as a non-zero run after the summary is printed.
 - ingest file history is stored in SQLite `ingestion_files` so daily reruns remain idempotent.
 - `trades` are now tagged with a source so cumulative paper reports only use `PAPER` trades, not backtest inserts.
 - Walk-forward artifacts are written under `artifacts/` by default and are ignored by git.
+
+## Codex Automation
+
+Recommended local automation target:
+
+```text
+Name: MNQ Daily Run
+Schedule: Every day at 06:00 Asia/Seoul
+CWD: C:\Users\한구원\Desktop\algo_future_trading
+Command: npm run daily -- --db "data/mnq-research.sqlite" --config "config/strategies/session-filtered-trend-pullback-v1.json" --artifacts-dir "artifacts" --input-dir "data/mnq_drop"
+```
+
+The `daily` summary is the intended automation output. It includes batch status, failed step, ingestion counts, inserted bars, source range, paper new trades, research recommendation, research gate pass, and latest artifact paths.

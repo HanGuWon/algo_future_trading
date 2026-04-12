@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { buildDailyAutomationSpec } from "../automation/dailyAutomation.js";
 import { BacktestEngine } from "../backtest/engine.js";
 import { OfficialCalendarProvider } from "../calendars/officialCalendarProvider.js";
 import {
@@ -17,6 +18,7 @@ import { describeStrategyConfig, loadStrategyConfig } from "../config/strategyLo
 import { ingestCsvDirectory, ingestCsvFile } from "../data/fileIngestion.js";
 import { PaperEngine } from "../paper/paperEngine.js";
 import { writeBatchArtifact } from "../reporting/batchArtifacts.js";
+import { buildDailyRunSummary, renderDailyRunSummary, resolveLatestDailyArtifacts } from "../reporting/dailyRun.js";
 import { writeArtifactIndex } from "../reporting/artifactIndex.js";
 import { writePaperArtifact } from "../reporting/paperArtifacts.js";
 import { writeResearchArtifact } from "../reporting/researchArtifacts.js";
@@ -37,6 +39,7 @@ import type {
   BatchRunArtifact,
   BatchIngestionSummary,
   BatchStepResult,
+  DailyRunSummary,
   DateRange,
   IngestionRunSummary,
   InputMode,
@@ -114,6 +117,10 @@ interface ArtifactsCommandResult {
   jsonPath: string;
   markdownPath: string;
   index: Awaited<ReturnType<typeof writeArtifactIndex>>["index"];
+}
+
+interface DailyCommandResult {
+  summary: DailyRunSummary;
 }
 
 function rangeFromOptionalBounds(startUtc?: string | null, endUtc?: string | null): DateRange | null {
@@ -699,6 +706,50 @@ async function batchCommand(options: Map<string, string>, logger: Pick<Console, 
   }
 }
 
+async function dailyCommand(
+  options: Map<string, string>,
+  logger: Pick<Console, "log"> = console
+): Promise<DailyCommandResult> {
+  const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
+  let batchError: Error | null = null;
+
+  try {
+    await batchCommand(options, logger);
+  } catch (error) {
+    batchError = error instanceof Error ? error : new Error(String(error));
+  }
+
+  const latestArtifacts = await resolveLatestDailyArtifacts(artifactsDir);
+  const summary = buildDailyRunSummary(latestArtifacts);
+  for (const line of renderDailyRunSummary(summary)) {
+    logger.log(line);
+  }
+
+  const inputPath = options.get("input-dir") ?? options.get("dir");
+  if (inputPath) {
+    const strategy = await loadCliStrategyContext(options);
+    const automationSpec = buildDailyAutomationSpec({
+      dbPath: options.get("db") ?? DEFAULT_DB_PATH,
+      configPath: strategy.configPath,
+      artifactsDir,
+      inputDir: resolve(inputPath),
+      startUtc: options.get("start"),
+      endUtc: options.get("end"),
+      cwd: process.cwd()
+    });
+    logger.log(`Automation name: ${automationSpec.name}`);
+    logger.log(`Automation schedule: ${automationSpec.scheduleLabel}`);
+    logger.log(`Automation cwd: ${automationSpec.cwd}`);
+    logger.log(`Automation command: ${automationSpec.command}`);
+  }
+
+  if (batchError) {
+    throw batchError;
+  }
+
+  return { summary };
+}
+
 export async function runCli(argv: string[], logger: Pick<Console, "log"> = console): Promise<void> {
   const [command = "help", ...rest] = argv;
   const options = parseArgs(rest);
@@ -727,11 +778,15 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
     case "batch":
       await batchCommand(options, logger);
       return;
+    case "daily":
+      await dailyCommand(options, logger);
+      return;
     default:
-      logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper, batch");
+      logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper, batch, daily");
       logger.log('ingest options: (--file <csv> | --dir <folder>) [--db path] [--symbol MNQ] [--contract H26]');
       logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward|batch] [--gate-pass-only] [--sort-by generated_at|net_pnl|expectancy] [--latest-only] [--limit N]');
       logger.log('batch options: [--db path] [--config path] [--artifacts-dir path] [--file csv | --input-dir folder] [--contract H26] [--start iso] [--end iso]');
+      logger.log('daily options: [--db path] [--config path] [--artifacts-dir path] --input-dir folder [--start iso] [--end iso]');
       logger.log(`strategy options: [--config ${DEFAULT_STRATEGY_CONFIG_PATH}]`);
   }
 }

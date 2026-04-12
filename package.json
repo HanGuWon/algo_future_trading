@@ -14,7 +14,8 @@
     "artifacts": "tsx src/cli/index.ts artifacts",
     "research": "tsx src/cli/index.ts research",
     "paper": "tsx src/cli/index.ts paper",
-    "batch": "tsx src/cli/index.ts batch"
+    "batch": "tsx src/cli/index.ts batch",
+    "daily": "tsx src/cli/index.ts daily"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",
