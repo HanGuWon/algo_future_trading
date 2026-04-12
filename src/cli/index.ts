@@ -20,9 +20,13 @@ import { PaperEngine } from "../paper/paperEngine.js";
 import { writeBatchArtifact } from "../reporting/batchArtifacts.js";
 import { writeDailyArtifact } from "../reporting/dailyArtifacts.js";
 import {
+  buildHistorySnapshotFromRuns,
   buildDailyRunArtifact,
+  buildDailyOperationsSummary,
   buildDailyRunSummary,
   renderDailyRunSummary,
+  renderDailyOperationsSummary,
+  resolveRecentDailyRunArtifacts,
   resolveLatestDailyArtifacts
 } from "../reporting/dailyRun.js";
 import { writeArtifactIndex } from "../reporting/artifactIndex.js";
@@ -127,6 +131,10 @@ interface ArtifactsCommandResult {
 
 interface DailyCommandResult {
   summary: DailyRunSummary;
+}
+
+interface OpsCommandResult {
+  summary: ReturnType<typeof buildDailyOperationsSummary>;
 }
 
 function rangeFromOptionalBounds(startUtc?: string | null, endUtc?: string | null): DateRange | null {
@@ -734,8 +742,15 @@ async function dailyCommand(
   }
 
   const latestArtifacts = await resolveLatestDailyArtifacts(artifactsDir);
-  const summary = buildDailyRunSummary(latestArtifacts);
-  const dailyArtifact = buildDailyRunArtifact(summary, latestArtifacts);
+  const baseSummary = buildDailyRunSummary(latestArtifacts);
+  const existingDailyRuns = await resolveRecentDailyRunArtifacts(artifactsDir, 14);
+  const dailyArtifactDraft = buildDailyRunArtifact(baseSummary, latestArtifacts);
+  const historySnapshot = buildHistorySnapshotFromRuns([dailyArtifactDraft, ...existingDailyRuns], 14);
+  const summary = {
+    ...baseSummary,
+    operationsSummary: buildDailyOperationsSummary([dailyArtifactDraft, ...existingDailyRuns], 14)
+  };
+  const dailyArtifact = buildDailyRunArtifact(summary, latestArtifacts, historySnapshot);
   const dailyArtifactPaths = await writeDailyArtifact(dailyArtifact, artifactsDir);
   summary.artifactPaths.dailyJsonPath = dailyArtifactPaths.jsonPath;
   summary.artifactPaths.dailyMarkdownPath = dailyArtifactPaths.markdownPath;
@@ -770,6 +785,25 @@ async function dailyCommand(
   return { summary };
 }
 
+async function opsCommand(
+  options: Map<string, string>,
+  logger: Pick<Console, "log"> = console
+): Promise<OpsCommandResult> {
+  const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
+  const rawLimit = options.get("limit");
+  const limit = rawLimit === undefined ? 14 : Number(rawLimit);
+  if (!Number.isInteger(limit) || limit < 0) {
+    throw new Error("ops --limit must be a non-negative integer");
+  }
+
+  const runs = await resolveRecentDailyRunArtifacts(artifactsDir, limit);
+  const summary = buildDailyOperationsSummary(runs, limit);
+  for (const line of renderDailyOperationsSummary(summary)) {
+    logger.log(line);
+  }
+  return { summary };
+}
+
 export async function runCli(argv: string[], logger: Pick<Console, "log"> = console): Promise<void> {
   const [command = "help", ...rest] = argv;
   const options = parseArgs(rest);
@@ -801,12 +835,16 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
     case "daily":
       await dailyCommand(options, logger);
       return;
+    case "ops":
+      await opsCommand(options, logger);
+      return;
     default:
-      logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper, batch, daily");
+      logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper, batch, daily, ops");
       logger.log('ingest options: (--file <csv> | --dir <folder>) [--db path] [--symbol MNQ] [--contract H26]');
       logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward|batch|daily] [--gate-pass-only] [--sort-by generated_at|net_pnl|expectancy] [--latest-only] [--limit N]');
       logger.log('batch options: [--db path] [--config path] [--artifacts-dir path] [--file csv | --input-dir folder] [--contract H26] [--start iso] [--end iso]');
       logger.log('daily options: [--db path] [--config path] [--artifacts-dir path] --input-dir folder [--start iso] [--end iso]');
+      logger.log('ops options: [--artifacts-dir path] [--limit N]');
       logger.log(`strategy options: [--config ${DEFAULT_STRATEGY_CONFIG_PATH}]`);
   }
 }

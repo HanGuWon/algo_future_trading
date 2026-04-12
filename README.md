@@ -33,6 +33,7 @@ npm run paper -- --db data/mnq-research.sqlite --config config/strategies/sessio
 npm run batch -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts
 npm run batch -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts --input-dir data/mnq_drop
 npm run daily -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts --input-dir data/mnq_drop
+npm run ops -- --artifacts-dir artifacts
 ```
 
 Expected CSV columns:
@@ -67,7 +68,7 @@ Directory ingest notes:
 - The engine uses a back-adjusted research series for 1h features and raw execution bars for fills.
 - `backtest` runs one config once; `walkforward` runs rolling train/validation/test windows and writes JSON artifacts.
 - `artifacts` scans the current artifact directory, builds `artifacts/index.json` and `artifacts/index.md`, and prints the latest paper/research/walk-forward/batch summaries.
-- `artifacts` also groups the latest `paper`, `research`, `walkforward`, and `batch` outputs by strategy config hash so different parameter profiles can be compared safely.
+- `artifacts` also groups the latest `paper`, `research`, `walkforward`, `batch`, and `daily` outputs by strategy config hash so different parameter profiles can be compared safely.
 - `artifacts --config-hash <prefix>` narrows the index to one config family and writes `artifacts/index-<prefix>.json|md`.
 - `artifacts --kind paper|research|walkforward|batch|daily` narrows the index to one artifact class and can be combined with `--config-hash`.
 - `artifacts --gate-pass-only` keeps only config groups whose latest research artifact passes the built-in research gates.
@@ -96,8 +97,11 @@ Directory ingest notes:
 - `batch` chains `sync-calendars`, optional `ingest`, `paper`, `research`, and `artifacts`, then writes a JSON summary under `artifacts/batch/`.
 - `batch --input-dir <folder>` uses incremental directory ingest and records a daily intake summary: scanned files, new files, skipped files, failed files, inserted bars, and source range.
 - `daily` wraps `batch`, evaluates the latest `batch`, `paper`, and `research` artifacts, and writes `artifacts/daily/daily-run-*.json|md`.
-- `daily` now classifies each run as `OK`, `WARN`, or `FAIL` using stable warning codes such as `NO_NEW_FILES`, `NO_NEW_PAPER_TRADES`, `RESEARCH_GATE_FAILED`, `STALE_SOURCE_RANGE`, and `BATCH_FAILED`.
+- `daily` classifies each run as `OK`, `WARN`, or `FAIL` using stable warning codes such as `NO_NEW_FILES`, `NO_NEW_PAPER_TRADES`, `RESEARCH_GATE_FAILED`, `STALE_SOURCE_RANGE`, and `BATCH_FAILED`.
+- `daily` also records a rolling operations-history snapshot over the latest 14 daily artifacts: status counts, fail streak, non-OK streak, latest OK/FAIL timestamps, and warning-code frequency.
 - `daily` exits `0` for `OK` and `WARN`, and exits non-zero only for `FAIL`.
+- `ops` is a read-only command that prints the same recent operations-history block without running `batch`.
+- `FAIL` streak counts only trailing `FAIL` runs; non-OK streak counts trailing `WARN` or `FAIL` runs.
 - ingest file history is stored in SQLite `ingestion_files` so daily reruns remain idempotent.
 - `trades` are now tagged with a source so cumulative paper reports only use `PAPER` trades, not backtest inserts.
 - Walk-forward artifacts are written under `artifacts/` by default and are ignored by git.
@@ -113,4 +117,4 @@ CWD: C:\Users\한구원\Desktop\algo_future_trading
 Command: npm run daily -- --db "data/mnq-research.sqlite" --config "config/strategies/session-filtered-trend-pullback-v1.json" --artifacts-dir "artifacts" --input-dir "data/mnq_drop"
 ```
 
-The `daily` summary is the intended automation output. It includes overall status, batch status, failed step, warning codes, ingestion counts, inserted bars, source range, paper new trades, research recommendation, research gate pass, and latest artifact paths.
+The `daily` summary is the intended automation output. It includes overall status, batch status, failed step, warning codes, ingestion counts, inserted bars, source range, paper new trades, research recommendation, research gate pass, latest artifact paths, and a short operations-history block.

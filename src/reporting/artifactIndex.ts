@@ -172,7 +172,17 @@ function dailySummary(artifact: DailyRunArtifact, jsonPath: string, markdownPath
       `Config: ${artifact.config?.summary ?? "n/a"} (${artifact.config?.sha256.slice(0, 12) ?? "n/a"})`,
       `Failed step: ${artifact.failedStep ?? "none"}`,
       `Research recommendation: ${artifact.researchRecommendation ?? "n/a"}`,
-      `Warnings: ${artifact.warningCodes.length > 0 ? artifact.warningCodes.join(", ") : "none"}`
+      `Warnings: ${artifact.warningCodes.length > 0 ? artifact.warningCodes.join(", ") : "none"}`,
+      `Fail streak: ${artifact.historySnapshot?.consecutiveFailCount ?? 0}`,
+      `Non-OK streak: ${artifact.historySnapshot?.consecutiveNonOkCount ?? 0}`,
+      `Top warnings: ${
+        artifact.historySnapshot && artifact.historySnapshot.warningCodeCounts.length > 0
+          ? artifact.historySnapshot.warningCodeCounts
+              .slice(0, 3)
+              .map((item) => `${item.code}:${item.count}`)
+              .join(", ")
+          : "none"
+      }`
     ]
   };
 }

@@ -26,6 +26,29 @@ export type DailyWarningCode =
   | "STALE_SOURCE_RANGE"
   | "BATCH_FAILED";
 
+export interface WarningCodeCount {
+  code: DailyWarningCode;
+  count: number;
+}
+
+export interface DailyHistorySnapshot {
+  windowSize: number;
+  okCount: number;
+  warnCount: number;
+  failCount: number;
+  consecutiveFailCount: number;
+  consecutiveNonOkCount: number;
+  latestOkGeneratedAtUtc: string | null;
+  latestFailGeneratedAtUtc: string | null;
+  warningCodeCounts: WarningCodeCount[];
+}
+
+export interface DailyOperationsSummary extends DailyHistorySnapshot {
+  latestStatus: DailyHealthStatus | null;
+  latestWarningCodes: DailyWarningCode[];
+  recentRunCount: number;
+}
+
 export interface Bar {
   symbol: string;
   contract: string;
@@ -589,6 +612,7 @@ export interface DailyRunSummary {
   researchRecommendation: ResearchReportArtifact["finalAssessment"]["recommendation"] | null;
   researchGatePass: boolean | null;
   artifactPaths: LatestArtifactPointers;
+  operationsSummary: DailyOperationsSummary | null;
 }
 
 export interface DailyRunArtifact extends DailyRunSummary {
@@ -597,4 +621,5 @@ export interface DailyRunArtifact extends DailyRunSummary {
   batchGeneratedAtUtc: string | null;
   paperGeneratedAtUtc: string | null;
   researchGeneratedAtUtc: string | null;
+  historySnapshot?: DailyHistorySnapshot;
 }

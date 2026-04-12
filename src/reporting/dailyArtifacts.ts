@@ -45,6 +45,25 @@ export function renderDailyArtifactMarkdown(artifact: DailyRunArtifact): string 
     `- Research recommendation: ${artifact.researchRecommendation ?? "n/a"}`,
     `- Research gate pass: ${artifact.researchGatePass === null ? "n/a" : artifact.researchGatePass ? "yes" : "no"}`,
     ``,
+    `## Operations History`,
+    ``,
+    `- Window size: ${artifact.historySnapshot?.windowSize ?? 0}`,
+    `- OK count: ${artifact.historySnapshot?.okCount ?? 0}`,
+    `- WARN count: ${artifact.historySnapshot?.warnCount ?? 0}`,
+    `- FAIL count: ${artifact.historySnapshot?.failCount ?? 0}`,
+    `- Consecutive FAIL streak: ${artifact.historySnapshot?.consecutiveFailCount ?? 0}`,
+    `- Consecutive non-OK streak: ${artifact.historySnapshot?.consecutiveNonOkCount ?? 0}`,
+    `- Latest OK: ${artifact.historySnapshot?.latestOkGeneratedAtUtc ?? "n/a"}`,
+    `- Latest FAIL: ${artifact.historySnapshot?.latestFailGeneratedAtUtc ?? "n/a"}`,
+    `- Top warning codes: ${
+      artifact.historySnapshot && artifact.historySnapshot.warningCodeCounts.length > 0
+        ? artifact.historySnapshot.warningCodeCounts
+            .slice(0, 3)
+            .map((item) => `${item.code}:${item.count}`)
+            .join(", ")
+        : "none"
+    }`,
+    ``,
     `## Artifact Paths`,
     ``,
     `- Batch JSON: ${artifact.artifactPaths.batchJsonPath ?? "n/a"}`,

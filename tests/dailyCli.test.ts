@@ -4,9 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildDailyAutomationSpec } from "../src/automation/dailyAutomation.js";
-import { buildDailyRunSummary, renderDailyRunSummary, resolveLatestDailyArtifacts } from "../src/reporting/dailyRun.js";
+import {
+  buildDailyOperationsSummary,
+  buildDailyRunSummary,
+  renderDailyRunSummary,
+  renderDailyOperationsSummary,
+  resolveLatestDailyArtifacts
+} from "../src/reporting/dailyRun.js";
 import { SqliteStore } from "../src/storage/sqliteStore.js";
-import type { ResearchReportArtifact } from "../src/types.js";
+import type { DailyRunArtifact, ResearchReportArtifact } from "../src/types.js";
 
 const mockPassingResearchArtifact: ResearchReportArtifact = {
   generatedAtUtc: "2026-04-12T00:00:00.000Z",
@@ -227,6 +233,109 @@ describe("daily CLI", () => {
     expect(lines).toContain("Paper new trades: 2");
     expect(lines).toContain("Research recommendation: continue_paper");
     expect(lines).toContain("Research gate pass: yes");
+    expect(lines).toContain("Operations history");
+    expect(lines).toContain("Recent runs analyzed: 0");
+  });
+
+  it("builds operations history with correct counts and streaks", () => {
+    const runs: DailyRunArtifact[] = [
+      {
+        generatedAtUtc: "2026-04-13T00:00:00.000Z",
+        batchStatus: "failed",
+        failedStep: "ingest",
+        overallStatus: "FAIL",
+        warningCodes: ["BATCH_FAILED", "INGEST_FAILED_FILES"],
+        warningMessages: [],
+        healthChecks: [],
+        ingestionSummary: null,
+        paperNewTrades: null,
+        researchRecommendation: null,
+        researchGatePass: null,
+        artifactPaths: {
+          batchJsonPath: null,
+          paperJsonPath: null,
+          researchJsonPath: null,
+          dailyJsonPath: null,
+          dailyMarkdownPath: null
+        },
+        operationsSummary: null,
+        config: null,
+        runProvenance: null,
+        batchGeneratedAtUtc: null,
+        paperGeneratedAtUtc: null,
+        researchGeneratedAtUtc: null
+      },
+      {
+        generatedAtUtc: "2026-04-12T00:00:00.000Z",
+        batchStatus: "completed",
+        failedStep: null,
+        overallStatus: "WARN",
+        warningCodes: ["NO_NEW_FILES"],
+        warningMessages: [],
+        healthChecks: [],
+        ingestionSummary: null,
+        paperNewTrades: 0,
+        researchRecommendation: "continue_paper",
+        researchGatePass: true,
+        artifactPaths: {
+          batchJsonPath: null,
+          paperJsonPath: null,
+          researchJsonPath: null,
+          dailyJsonPath: null,
+          dailyMarkdownPath: null
+        },
+        operationsSummary: null,
+        config: null,
+        runProvenance: null,
+        batchGeneratedAtUtc: null,
+        paperGeneratedAtUtc: null,
+        researchGeneratedAtUtc: null
+      },
+      {
+        generatedAtUtc: "2026-04-11T00:00:00.000Z",
+        batchStatus: "completed",
+        failedStep: null,
+        overallStatus: "OK",
+        warningCodes: [],
+        warningMessages: [],
+        healthChecks: [],
+        ingestionSummary: null,
+        paperNewTrades: 1,
+        researchRecommendation: "continue_paper",
+        researchGatePass: true,
+        artifactPaths: {
+          batchJsonPath: null,
+          paperJsonPath: null,
+          researchJsonPath: null,
+          dailyJsonPath: null,
+          dailyMarkdownPath: null
+        },
+        operationsSummary: null,
+        config: null,
+        runProvenance: null,
+        batchGeneratedAtUtc: null,
+        paperGeneratedAtUtc: null,
+        researchGeneratedAtUtc: null
+      }
+    ];
+
+    const summary = buildDailyOperationsSummary(runs, 14);
+    expect(summary.recentRunCount).toBe(3);
+    expect(summary.failCount).toBe(1);
+    expect(summary.warnCount).toBe(1);
+    expect(summary.okCount).toBe(1);
+    expect(summary.consecutiveFailCount).toBe(1);
+    expect(summary.consecutiveNonOkCount).toBe(2);
+    expect(summary.latestFailGeneratedAtUtc).toBe("2026-04-13T00:00:00.000Z");
+    expect(summary.latestOkGeneratedAtUtc).toBe("2026-04-11T00:00:00.000Z");
+    expect(summary.warningCodeCounts[0]).toEqual({ code: "BATCH_FAILED", count: 1 });
+
+    const lines = renderDailyOperationsSummary(summary);
+    expect(lines).toContain("Operations history");
+    expect(lines).toContain("Recent runs analyzed: 3");
+    expect(lines).toContain("Status counts: OK=1 WARN=1 FAIL=1");
+    expect(lines).toContain("Current fail streak: 1");
+    expect(lines).toContain("Current non-OK streak: 2");
   });
 
   it("returns WARN when no new files or paper trades are produced", () => {
@@ -398,8 +507,12 @@ describe("daily CLI", () => {
     expect(output.some((line) => line.includes("New files: 0"))).toBe(true);
     expect(output.some((line) => line.includes("Warning codes: NO_NEW_FILES, ZERO_INSERTED_BARS, NO_NEW_PAPER_TRADES"))).toBe(true);
     expect(output.some((line) => line.includes("Research recommendation: continue_paper"))).toBe(true);
+    expect(output.some((line) => line.includes("Operations history"))).toBe(true);
+    expect(output.some((line) => line.includes("Recent runs analyzed: 1"))).toBe(true);
     expect(output.some((line) => line.includes("Automation schedule: Every day at 06:00 Asia/Seoul"))).toBe(true);
     expect(output.some((line) => line.includes("Daily artifact JSON:"))).toBe(true);
+    const dailyDirFiles = await readdir(join(artifactsDir, "daily"));
+    expect(dailyDirFiles.some((file) => file.endsWith(".json"))).toBe(true);
   });
 
   it("surfaces ingest failure and still prints a summary", async () => {

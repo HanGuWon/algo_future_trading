@@ -365,7 +365,21 @@ describe("artifacts CLI", () => {
         },
         batchGeneratedAtUtc: "2026-04-11T00:00:00.000Z",
         paperGeneratedAtUtc: "2026-04-11T00:00:00.000Z",
-        researchGeneratedAtUtc: "2026-04-11T00:00:00.000Z"
+        researchGeneratedAtUtc: "2026-04-11T00:00:00.000Z",
+        historySnapshot: {
+          windowSize: 4,
+          okCount: 1,
+          warnCount: 2,
+          failCount: 1,
+          consecutiveFailCount: 0,
+          consecutiveNonOkCount: 2,
+          latestOkGeneratedAtUtc: "2026-04-10T00:10:00.000Z",
+          latestFailGeneratedAtUtc: "2026-04-09T00:10:00.000Z",
+          warningCodeCounts: [
+            { code: "NO_NEW_FILES", count: 2 },
+            { code: "RESEARCH_MORE", count: 1 }
+          ]
+        }
       }),
       "utf8"
     );
@@ -400,6 +414,8 @@ describe("artifacts CLI", () => {
     expect(indexMarkdown).toContain("Latest batch");
     expect(indexMarkdown).toContain("Latest daily");
     expect(indexMarkdown).toContain("daily-profile");
+    expect(indexMarkdown).toContain("Fail streak: 0");
+    expect(indexMarkdown).toContain("Top warnings: NO_NEW_FILES:2, RESEARCH_MORE:1");
   });
 
   it("filters the artifact index by config hash prefix", async () => {

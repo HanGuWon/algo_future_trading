@@ -5,12 +5,15 @@ import type {
   BatchRunArtifact,
   DailyHealthCheckResult,
   DailyHealthStatus,
+  DailyHistorySnapshot,
+  DailyOperationsSummary,
   DailyRunArtifact,
   DailyRunSummary,
   DailyWarningCode,
   LatestArtifactPointers,
   PaperReportArtifact,
-  ResearchReportArtifact
+  ResearchReportArtifact,
+  WarningCodeCount
 } from "../types.js";
 
 interface LatestDailyArtifacts {
@@ -19,6 +22,8 @@ interface LatestDailyArtifacts {
   paperArtifact: PaperReportArtifact | null;
   researchArtifact: ResearchReportArtifact | null;
 }
+
+const DEFAULT_HISTORY_LIMIT = 14;
 
 const WARNING_MESSAGES: Record<DailyWarningCode, string> = {
   NO_NEW_FILES: "No new CSV files were ingested in this run.",
@@ -34,6 +39,10 @@ const WARNING_MESSAGES: Record<DailyWarningCode, string> = {
 function latestByName(files: string[]): string | null {
   const sorted = [...files].sort((left, right) => right.localeCompare(left));
   return sorted[0] ?? null;
+}
+
+function sortGeneratedAtDesc<T extends { generatedAtUtc: string }>(items: T[]): T[] {
+  return [...items].sort((left, right) => right.generatedAtUtc.localeCompare(left.generatedAtUtc));
 }
 
 async function safeList(dir: string): Promise<string[]> {
@@ -79,9 +88,12 @@ function isSourceRangeStale(endUtc: string | null, now: Date): boolean {
   return todayKst - sourceDayKst > 2;
 }
 
-function buildHealthChecks(summary: Omit<DailyRunSummary, "overallStatus" | "warningCodes" | "warningMessages" | "healthChecks">, now: Date): DailyHealthCheckResult[] {
+function buildHealthChecks(
+  summary: Omit<DailyRunSummary, "overallStatus" | "warningCodes" | "warningMessages" | "healthChecks" | "operationsSummary">,
+  now: Date
+): DailyHealthCheckResult[] {
   const sourceEndUtc = summary.ingestionSummary?.sourceRange?.endUtc ?? null;
-  const checks: DailyHealthCheckResult[] = [
+  return [
     {
       code: "BATCH_FAILED",
       severity: "FAIL",
@@ -91,9 +103,7 @@ function buildHealthChecks(summary: Omit<DailyRunSummary, "overallStatus" | "war
     {
       code: "INGEST_FAILED_FILES",
       severity: "FAIL",
-      passed:
-        (summary.ingestionSummary?.failedFileCount ?? 0) === 0 &&
-        summary.failedStep !== "ingest",
+      passed: (summary.ingestionSummary?.failedFileCount ?? 0) === 0 && summary.failedStep !== "ingest",
       message: WARNING_MESSAGES.INGEST_FAILED_FILES
     },
     {
@@ -133,10 +143,13 @@ function buildHealthChecks(summary: Omit<DailyRunSummary, "overallStatus" | "war
       message: WARNING_MESSAGES.STALE_SOURCE_RANGE
     }
   ];
-  return checks;
 }
 
-function deriveOverallStatus(checks: DailyHealthCheckResult[], recommendation: DailyRunSummary["researchRecommendation"], gatePass: boolean | null): DailyHealthStatus {
+function deriveOverallStatus(
+  checks: DailyHealthCheckResult[],
+  recommendation: DailyRunSummary["researchRecommendation"],
+  gatePass: boolean | null
+): DailyHealthStatus {
   if (checks.some((check) => check.severity === "FAIL" && !check.passed)) {
     return "FAIL";
   }
@@ -150,6 +163,98 @@ function deriveOverallStatus(checks: DailyHealthCheckResult[], recommendation: D
     return "OK";
   }
   return "WARN";
+}
+
+function buildWarningCodeCounts(runs: DailyRunArtifact[]): WarningCodeCount[] {
+  const counts = new Map<DailyWarningCode, number>();
+  for (const run of runs) {
+    for (const code of run.warningCodes) {
+      counts.set(code, (counts.get(code) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .map(([code, count]) => ({ code, count }))
+    .sort((left, right) => {
+      if (left.count !== right.count) {
+        return right.count - left.count;
+      }
+      return left.code.localeCompare(right.code);
+    });
+}
+
+function countLeadingStatuses(runs: DailyRunArtifact[], matcher: (status: DailyHealthStatus) => boolean): number {
+  let count = 0;
+  for (const run of runs) {
+    if (!matcher(run.overallStatus)) {
+      break;
+    }
+    count += 1;
+  }
+  return count;
+}
+
+export function buildDailyOperationsSummary(
+  runs: DailyRunArtifact[],
+  limit = DEFAULT_HISTORY_LIMIT
+): DailyOperationsSummary {
+  const recentRuns = sortGeneratedAtDesc(runs).slice(0, Math.max(0, limit));
+  const latest = recentRuns[0] ?? null;
+  const okCount = recentRuns.filter((run) => run.overallStatus === "OK").length;
+  const warnCount = recentRuns.filter((run) => run.overallStatus === "WARN").length;
+  const failCount = recentRuns.filter((run) => run.overallStatus === "FAIL").length;
+  const latestOkGeneratedAtUtc = recentRuns.find((run) => run.overallStatus === "OK")?.generatedAtUtc ?? null;
+  const latestFailGeneratedAtUtc = recentRuns.find((run) => run.overallStatus === "FAIL")?.generatedAtUtc ?? null;
+  const warningCodeCounts = buildWarningCodeCounts(recentRuns);
+
+  return {
+    latestStatus: latest?.overallStatus ?? null,
+    latestWarningCodes: latest?.warningCodes ?? [],
+    recentRunCount: recentRuns.length,
+    windowSize: recentRuns.length,
+    okCount,
+    warnCount,
+    failCount,
+    consecutiveFailCount: countLeadingStatuses(recentRuns, (status) => status === "FAIL"),
+    consecutiveNonOkCount: countLeadingStatuses(recentRuns, (status) => status !== "OK"),
+    latestOkGeneratedAtUtc,
+    latestFailGeneratedAtUtc,
+    warningCodeCounts
+  };
+}
+
+function toHistorySnapshot(summary: DailyOperationsSummary): DailyHistorySnapshot {
+  return {
+    windowSize: summary.windowSize,
+    okCount: summary.okCount,
+    warnCount: summary.warnCount,
+    failCount: summary.failCount,
+    consecutiveFailCount: summary.consecutiveFailCount,
+    consecutiveNonOkCount: summary.consecutiveNonOkCount,
+    latestOkGeneratedAtUtc: summary.latestOkGeneratedAtUtc,
+    latestFailGeneratedAtUtc: summary.latestFailGeneratedAtUtc,
+    warningCodeCounts: summary.warningCodeCounts
+  };
+}
+
+export async function resolveRecentDailyRunArtifacts(
+  artifactsDir = DEFAULT_ARTIFACTS_DIR,
+  limit = DEFAULT_HISTORY_LIMIT
+): Promise<DailyRunArtifact[]> {
+  const dailyDir = join(artifactsDir, "daily");
+  const files = await safeList(dailyDir);
+  const jsonFiles = sortGeneratedAtDesc(
+    files.filter((entry) => /^daily-run-.*\.json$/.test(entry)).map((entry) => ({
+      generatedAtUtc: entry,
+      fileName: entry
+    }))
+  )
+    .map((entry) => entry.fileName)
+    .slice(0, Math.max(0, limit));
+
+  const artifacts = await Promise.all(
+    jsonFiles.map(async (entry) => readJsonIfExists<DailyRunArtifact>(join(dailyDir, entry)))
+  );
+  return artifacts.filter((artifact): artifact is DailyRunArtifact => artifact !== null);
 }
 
 export async function resolveLatestDailyArtifacts(
@@ -226,13 +331,15 @@ export function buildDailyRunSummary(
     overallStatus: deriveOverallStatus(healthChecks, baseSummary.researchRecommendation, baseSummary.researchGatePass),
     warningCodes: warningChecks.map((check) => check.code),
     warningMessages: warningChecks.map((check) => check.message),
-    healthChecks
+    healthChecks,
+    operationsSummary: null
   };
 }
 
 export function buildDailyRunArtifact(
   summary: DailyRunSummary,
-  artifacts: LatestDailyArtifacts
+  artifacts: LatestDailyArtifacts,
+  historySnapshot?: DailyHistorySnapshot
 ): DailyRunArtifact {
   return {
     ...summary,
@@ -248,7 +355,8 @@ export function buildDailyRunArtifact(
       null,
     batchGeneratedAtUtc: artifacts.batchArtifact?.generatedAtUtc ?? null,
     paperGeneratedAtUtc: artifacts.paperArtifact?.generatedAtUtc ?? null,
-    researchGeneratedAtUtc: artifacts.researchArtifact?.generatedAtUtc ?? null
+    researchGeneratedAtUtc: artifacts.researchArtifact?.generatedAtUtc ?? null,
+    historySnapshot
   };
 }
 
@@ -261,6 +369,33 @@ function sourceRangeLabel(summary: DailyRunSummary): string {
 
 function warningCodesLabel(summary: DailyRunSummary): string {
   return summary.warningCodes.length > 0 ? summary.warningCodes.join(", ") : "none";
+}
+
+function topWarningsLabel(summary: DailyOperationsSummary | null): string {
+  if (!summary || summary.warningCodeCounts.length === 0) {
+    return "none";
+  }
+  return summary.warningCodeCounts
+    .slice(0, 3)
+    .map((item) => `${item.code}:${item.count}`)
+    .join(", ");
+}
+
+export function renderDailyOperationsSummary(summary: DailyOperationsSummary | null): string[] {
+  if (!summary) {
+    return ["Operations history", "Recent runs analyzed: 0"];
+  }
+
+  return [
+    "Operations history",
+    `Recent runs analyzed: ${summary.recentRunCount}`,
+    `Status counts: OK=${summary.okCount} WARN=${summary.warnCount} FAIL=${summary.failCount}`,
+    `Current fail streak: ${summary.consecutiveFailCount}`,
+    `Current non-OK streak: ${summary.consecutiveNonOkCount}`,
+    `Latest FAIL: ${summary.latestFailGeneratedAtUtc ?? "n/a"}`,
+    `Latest OK: ${summary.latestOkGeneratedAtUtc ?? "n/a"}`,
+    `Top warning codes: ${topWarningsLabel(summary)}`
+  ];
 }
 
 export function renderDailyRunSummary(summary: DailyRunSummary): string[] {
@@ -285,6 +420,25 @@ export function renderDailyRunSummary(summary: DailyRunSummary): string[] {
     `Paper artifact JSON: ${summary.artifactPaths.paperJsonPath ?? "n/a"}`,
     `Research artifact JSON: ${summary.artifactPaths.researchJsonPath ?? "n/a"}`,
     `Daily artifact JSON: ${summary.artifactPaths.dailyJsonPath ?? "n/a"}`,
-    `Daily artifact Markdown: ${summary.artifactPaths.dailyMarkdownPath ?? "n/a"}`
+    `Daily artifact Markdown: ${summary.artifactPaths.dailyMarkdownPath ?? "n/a"}`,
+    ...renderDailyOperationsSummary(summary.operationsSummary)
   ];
+}
+
+export function withDailyOperationsSummary(
+  summary: DailyRunSummary,
+  runs: DailyRunArtifact[],
+  limit = DEFAULT_HISTORY_LIMIT
+): DailyRunSummary {
+  return {
+    ...summary,
+    operationsSummary: buildDailyOperationsSummary(runs, limit)
+  };
+}
+
+export function buildHistorySnapshotFromRuns(
+  runs: DailyRunArtifact[],
+  limit = DEFAULT_HISTORY_LIMIT
+): DailyHistorySnapshot {
+  return toHistorySnapshot(buildDailyOperationsSummary(runs, limit));
 }

@@ -15,7 +15,8 @@
     "research": "tsx src/cli/index.ts research",
     "paper": "tsx src/cli/index.ts paper",
     "batch": "tsx src/cli/index.ts batch",
-    "daily": "tsx src/cli/index.ts daily"
+    "daily": "tsx src/cli/index.ts daily",
+    "ops": "tsx src/cli/index.ts ops"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",
