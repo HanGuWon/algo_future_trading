@@ -17,6 +17,7 @@ TypeScript/Node scaffold for a CME-only `MNQ` research and paper-trading bot der
 npm install
 npm run sync-calendars -- --out data/calendars/official-events.json --config config/strategies/session-filtered-trend-pullback-v1.json
 npm run ingest -- --file path/to/mnq_1m.csv --db data/mnq-research.sqlite
+npm run ingest -- --dir data/mnq_drop --db data/mnq-research.sqlite
 npm run backtest -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json
 npm run walkforward -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts
 npm run artifacts -- --artifacts-dir artifacts
@@ -29,6 +30,7 @@ npm run artifacts -- --artifacts-dir artifacts --limit 5
 npm run research -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts
 npm run paper -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --start 2026-04-10T00:00:00.000Z
 npm run batch -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts
+npm run batch -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts --input-dir data/mnq_drop
 ```
 
 Expected CSV columns:
@@ -48,6 +50,13 @@ Notes for real data:
 npm run ingest -- --file path/to/mnq_1m.csv --db data/mnq-research.sqlite --contract H26
 ```
 
+Directory ingest notes:
+
+- `ingest --dir <folder>` scans only `.csv` files and processes them in filename order.
+- already processed files with the same path, size, modified time, and content hash are skipped.
+- if a previously processed file changes in place, ingest fails and records the file as `failed` in SQLite `ingestion_files`.
+- the intended operating model is append-only drops: corrections should arrive as new files, not in-place edits.
+
 ## Notes
 
 - `bars` are stored in SQLite with UTC timestamps and Chicago-session labels.
@@ -55,10 +64,10 @@ npm run ingest -- --file path/to/mnq_1m.csv --db data/mnq-research.sqlite --cont
 - `config/strategies/session-filtered-trend-pullback-v1.json` is the default profile, and `config/strategies/session-filtered-trend-pullback-v1.research-tight.json` is an example override profile for stricter research runs.
 - The engine uses a back-adjusted research series for 1h features and raw execution bars for fills.
 - `backtest` runs one config once; `walkforward` runs rolling train/validation/test windows and writes JSON artifacts.
-- `artifacts` scans the current artifact directory, builds `artifacts/index.json` and `artifacts/index.md`, and prints the latest paper/research/walk-forward summaries.
-- `artifacts` also groups the latest `paper`, `research`, and `walkforward` outputs by strategy config hash so different parameter profiles can be compared safely.
+- `artifacts` scans the current artifact directory, builds `artifacts/index.json` and `artifacts/index.md`, and prints the latest paper/research/walk-forward/batch summaries.
+- `artifacts` also groups the latest `paper`, `research`, `walkforward`, and `batch` outputs by strategy config hash so different parameter profiles can be compared safely.
 - `artifacts --config-hash <prefix>` narrows the index to one config family and writes `artifacts/index-<prefix>.json|md`.
-- `artifacts --kind paper|research|walkforward` narrows the index to one artifact class and can be combined with `--config-hash`.
+- `artifacts --kind paper|research|walkforward|batch` narrows the index to one artifact class and can be combined with `--config-hash`.
 - `artifacts --gate-pass-only` keeps only config groups whose latest research artifact passes the built-in research gates.
 - `artifacts --sort-by generated_at|net_pnl|expectancy` changes how config groups are ranked in the grouped summary.
 - `artifacts --latest-only` shows only the newest config group in the grouped summary while keeping overall counts intact.
@@ -81,7 +90,9 @@ npm run ingest -- --file path/to/mnq_1m.csv --db data/mnq-research.sqlite --cont
   - event-filter scenario comparison
   - final recommendation
 - `walkforward` now also writes a matching Markdown summary next to its JSON artifact.
-- `paper`, `research`, and `walkforward` artifacts all record run provenance: git commit, Node version, DB path, event window count, and source range.
+- `paper`, `research`, and `walkforward` artifacts all record run provenance: git commit, Node version, DB path, event window count, input mode/path, and source range.
 - `batch` chains `sync-calendars`, optional `ingest`, `paper`, `research`, and `artifacts`, then writes a JSON summary under `artifacts/batch/`.
+- `batch --input-dir <folder>` uses incremental directory ingest and records a daily intake summary: scanned files, new files, skipped files, failed files, inserted bars, and source range.
+- ingest file history is stored in SQLite `ingestion_files` so daily reruns remain idempotent.
 - `trades` are now tagged with a source so cumulative paper reports only use `PAPER` trades, not backtest inserts.
 - Walk-forward artifacts are written under `artifacts/` by default and are ignored by git.

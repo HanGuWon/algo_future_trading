@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import type { Bar, DateRange, RunProvenance } from "../types.js";
+import type { Bar, DateRange, InputMode, RunProvenance } from "../types.js";
 
 interface BuildRunProvenanceOptions {
   dbPath: string | null;
@@ -7,6 +7,8 @@ interface BuildRunProvenanceOptions {
   bars?: Bar[];
   sourceRange?: DateRange | null;
   gitCommitSha?: string | null;
+  inputMode?: InputMode;
+  inputPath?: string | null;
 }
 
 export function resolveGitCommitSha(
@@ -41,6 +43,8 @@ export function buildRunProvenance(options: BuildRunProvenanceOptions): RunProve
     nodeVersion: process.version,
     dbPath: options.dbPath,
     eventWindowCount: options.eventWindowCount,
-    sourceRange: options.sourceRange ?? deriveSourceRangeFromBars(options.bars ?? [])
+    sourceRange: options.sourceRange ?? deriveSourceRangeFromBars(options.bars ?? []),
+    inputMode: options.inputMode ?? "none",
+    inputPath: options.inputPath ?? null
   };
 }

@@ -23,6 +23,7 @@ import type {
   ParameterCandidate,
   ResearchReportArtifact,
   ResearchGateConfig,
+  InputMode,
   RunMetrics,
   SensitivityCandidateResult,
   StrategyConfig,
@@ -47,6 +48,8 @@ interface ResearchReportRunnerOptions {
   gateConfig?: ResearchGateConfig;
   dbPath?: string | null;
   gitCommitSha?: string | null;
+  inputMode?: InputMode;
+  inputPath?: string | null;
 }
 
 function defaultAcceptanceSplit(): AcceptanceSplitConfig {
@@ -271,6 +274,8 @@ export class ResearchReportRunner {
   private readonly gateConfig: ResearchGateConfig;
   private readonly dbPath: string | null;
   private readonly gitCommitSha: string | null | undefined;
+  private readonly inputMode: InputMode;
+  private readonly inputPath: string | null;
 
   constructor(
     private readonly bars: Bar[],
@@ -294,6 +299,8 @@ export class ResearchReportRunner {
     this.gateConfig = options.gateConfig ?? DEFAULT_RESEARCH_GATE_CONFIG;
     this.dbPath = options.dbPath ?? null;
     this.gitCommitSha = options.gitCommitSha;
+    this.inputMode = options.inputMode ?? "none";
+    this.inputPath = options.inputPath ?? null;
   }
 
   run(): ResearchReportArtifact {
@@ -318,7 +325,11 @@ export class ResearchReportRunner {
       this.eventWindows,
       this.walkforwardOptions,
       this.walkforwardCandidates,
-      this.baseConfig
+      this.baseConfig,
+      this.dbPath,
+      this.gitCommitSha,
+      this.inputMode,
+      this.inputPath
     ).run();
     const walkforwardSummary: ResearchReportArtifact["walkforward"] = {
       mode: walkforwardArtifact.mode,
@@ -444,7 +455,9 @@ export class ResearchReportRunner {
         dbPath: this.dbPath,
         eventWindowCount: this.eventWindows.length,
         bars: this.bars,
-        gitCommitSha: this.gitCommitSha
+        gitCommitSha: this.gitCommitSha,
+        inputMode: this.inputMode,
+        inputPath: this.inputPath
       }),
       baseline: {
         train: baselineTrain,

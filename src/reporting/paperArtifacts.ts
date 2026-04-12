@@ -64,6 +64,8 @@ export function renderPaperArtifactMarkdown(artifact: PaperReportArtifact): stri
     `- Node: ${artifact.runProvenance.nodeVersion}`,
     `- DB path: ${artifact.runProvenance.dbPath ?? "n/a"}`,
     `- Event windows used: ${artifact.runProvenance.eventWindowCount}`,
+    `- Input mode: ${artifact.runProvenance.inputMode}`,
+    `- Input path: ${artifact.runProvenance.inputPath ?? "n/a"}`,
     `- Source range: ${artifact.runProvenance.sourceRange ? `${artifact.runProvenance.sourceRange.startUtc} -> ${artifact.runProvenance.sourceRange.endUtc}` : "n/a"}`,
     `- Processed Through: ${artifact.run.processedThroughUtc ?? "n/a"}`,
     `- Recommendation Context: paper execution summary`,

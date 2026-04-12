@@ -13,6 +13,8 @@ export type OrderStatus = "PENDING" | "OPEN" | "PARTIALLY_FILLED" | "FILLED" | "
 export type EventType = "FOMC" | "CPI" | "EMPLOYMENT";
 export type StrategyId = "SessionFilteredTrendPullback_v1";
 export type TradeSource = "BACKTEST" | "PAPER";
+export type InputMode = "file" | "dir" | "none";
+export type IngestionFileStatus = "processed" | "failed";
 
 export interface Bar {
   symbol: string;
@@ -209,7 +211,37 @@ export interface RunProvenance {
   dbPath: string | null;
   eventWindowCount: number;
   sourceRange: DateRange | null;
+  inputMode: InputMode;
+  inputPath: string | null;
 }
+
+export interface IngestionFileRecord {
+  filePath: string;
+  fileSizeBytes: number;
+  fileModifiedTimeUtc: string;
+  contentHash: string;
+  detectedContract: string | null;
+  firstTsUtc: string | null;
+  lastTsUtc: string | null;
+  rowsInserted: number;
+  processedAtUtc: string;
+  status: IngestionFileStatus;
+  failureReason?: string;
+}
+
+export interface IngestionRunSummary {
+  inputMode: Exclude<InputMode, "none">;
+  inputPath: string;
+  scannedFileCount: number;
+  newFileCount: number;
+  skippedFileCount: number;
+  failedFileCount: number;
+  insertedBarCount: number;
+  sourceRange: DateRange | null;
+  contracts: string[];
+}
+
+export interface BatchIngestionSummary extends IngestionRunSummary {}
 
 export interface AccountState {
   equityUsd: number;
@@ -515,5 +547,6 @@ export interface BatchRunArtifact {
   strategyId: StrategyId;
   config: StrategyConfigReference;
   runProvenance: RunProvenance;
+  ingestionSummary: BatchIngestionSummary | null;
   steps: BatchStepResult[];
 }

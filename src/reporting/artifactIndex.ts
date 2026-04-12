@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DEFAULT_ARTIFACTS_DIR } from "../config/defaults.js";
 import type {
+  BatchRunArtifact,
   PaperReportArtifact,
   ResearchReportArtifact,
   StrategyConfigReference,
@@ -9,7 +10,7 @@ import type {
 } from "../types.js";
 import type { WrittenArtifactPaths } from "./paperArtifacts.js";
 
-export type ArtifactKind = "paper" | "research" | "walkforward";
+export type ArtifactKind = "paper" | "research" | "walkforward" | "batch";
 export type ArtifactSortBy = "generated_at" | "net_pnl" | "expectancy";
 
 interface ArtifactLatestSummary {
@@ -135,6 +136,26 @@ function walkforwardSummary(
   };
 }
 
+function batchSummary(artifact: BatchRunArtifact, jsonPath: string): ArtifactLatestSummary {
+  const completedSteps = artifact.steps.filter((step) => step.status === "completed").length;
+  return {
+    kind: "batch",
+    generatedAtUtc: artifact.generatedAtUtc,
+    jsonPath,
+    markdownPath: null,
+    headline: `Batch: ${artifact.status}, ${completedSteps}/${artifact.steps.length} steps completed`,
+    config: artifact.config ?? null,
+    netPnlUsd: null,
+    expectancyUsd: null,
+    gatePass: null,
+    details: [
+      `Config: ${artifact.config?.summary ?? "n/a"} (${artifact.config?.sha256.slice(0, 12) ?? "n/a"})`,
+      `Failed step: ${artifact.failedStep ?? "none"}`,
+      `Ingestion: ${artifact.ingestionSummary ? `${artifact.ingestionSummary.newFileCount} new files, ${artifact.ingestionSummary.insertedBarCount} bars` : "not run"}`
+    ]
+  };
+}
+
 async function loadPaperSummaries(dir: string, files: string[]): Promise<ArtifactLatestSummary[]> {
   const jsonFiles = files.filter((entry) => entry.endsWith(".json"));
   return Promise.all(
@@ -179,6 +200,17 @@ async function loadWalkForwardSummaries(dir: string, files: string[]): Promise<A
         jsonPath,
         files.includes(markdownName) ? join(dir, markdownName) : null
       );
+    })
+  );
+}
+
+async function loadBatchSummaries(dir: string, files: string[]): Promise<ArtifactLatestSummary[]> {
+  const jsonFiles = files.filter((entry) => entry.endsWith(".json"));
+  return Promise.all(
+    jsonFiles.map(async (entry) => {
+      const jsonPath = join(dir, entry);
+      const artifact = await readJson<BatchRunArtifact>(jsonPath);
+      return batchSummary(artifact, jsonPath);
     })
   );
 }
@@ -296,15 +328,18 @@ export async function buildArtifactIndexWithFilter(
 ): Promise<ArtifactIndexFile> {
   const paperDir = join(artifactsDir, "paper");
   const researchDir = join(artifactsDir, "research");
+  const batchDir = join(artifactsDir, "batch");
 
   const paperFiles = await safeList(paperDir);
   const researchFiles = await safeList(researchDir);
+  const batchFiles = await safeList(batchDir);
   const rootFiles = await safeList(artifactsDir);
 
   const paperSummaries = await loadPaperSummaries(paperDir, paperFiles);
   const researchSummaries = await loadResearchSummaries(researchDir, researchFiles);
   const walkforwardSummaries = await loadWalkForwardSummaries(artifactsDir, rootFiles);
-  const allSummaries = [...paperSummaries, ...researchSummaries, ...walkforwardSummaries];
+  const batchSummaries = await loadBatchSummaries(batchDir, batchFiles);
+  const allSummaries = [...paperSummaries, ...researchSummaries, ...walkforwardSummaries, ...batchSummaries];
   const gatePassingConfigs = latestResearchGatePassByConfig(allSummaries);
 
   const filteredSummaries = allSummaries
@@ -316,6 +351,7 @@ export async function buildArtifactIndexWithFilter(
   latest.paper = latestForKind("paper", filteredSummaries, null, null);
   latest.research = latestForKind("research", filteredSummaries, null, null);
   latest.walkforward = latestForKind("walkforward", filteredSummaries, null, null);
+  latest.batch = latestForKind("batch", filteredSummaries, null, null);
 
   const filteredConfigGroups = buildConfigGroups(filteredSummaries, sortBy);
   const totalConfigProfiles = filteredConfigGroups.length;
@@ -335,7 +371,8 @@ export async function buildArtifactIndexWithFilter(
     counts: {
       paper: filteredSummaries.filter((summary) => summary.kind === "paper").length,
       research: filteredSummaries.filter((summary) => summary.kind === "research").length,
-      walkforward: filteredSummaries.filter((summary) => summary.kind === "walkforward").length
+      walkforward: filteredSummaries.filter((summary) => summary.kind === "walkforward").length,
+      batch: filteredSummaries.filter((summary) => summary.kind === "batch").length
     },
     totalConfigProfiles,
     latest,
@@ -361,11 +398,12 @@ export function renderArtifactIndexMarkdown(index: ArtifactIndexFile): string {
     `- Paper reports: ${index.counts.paper}`,
     `- Research reports: ${index.counts.research}`,
     `- Walk-forward reports: ${index.counts.walkforward}`,
+    `- Batch reports: ${index.counts.batch}`,
     `- Config profiles shown: ${index.byConfigHash.length}`,
     `- Config profiles total: ${index.totalConfigProfiles}`
   ];
 
-  for (const kind of ["paper", "research", "walkforward"] as ArtifactKind[]) {
+  for (const kind of ["paper", "research", "walkforward", "batch"] as ArtifactKind[]) {
     const item = index.latest[kind];
     sections.push("", `## Latest ${kind}`);
     if (!item) {
@@ -399,7 +437,7 @@ export function renderArtifactIndexMarkdown(index: ArtifactIndexFile): string {
       `- Path: ${group.path}`
     );
 
-    for (const kind of ["paper", "research", "walkforward"] as ArtifactKind[]) {
+    for (const kind of ["paper", "research", "walkforward", "batch"] as ArtifactKind[]) {
       const item = group.latest[kind];
       sections.push(item ? `- ${kind}: ${item.headline}` : `- ${kind}: none`);
     }

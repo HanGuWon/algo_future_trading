@@ -15,6 +15,8 @@ const mockResearchArtifact: ResearchReportArtifact = {
     nodeVersion: "v22.0.0",
     dbPath: "mock.sqlite",
     eventWindowCount: 0,
+    inputMode: "none",
+    inputPath: null,
     sourceRange: {
       startUtc: "2018-01-01T00:00:00.000Z",
       endUtc: "2025-12-31T23:59:59.999Z"
@@ -208,6 +210,70 @@ describe("batch CLI", () => {
     }
   });
 
+  it("runs batch with --input-dir and records ingestion summary", async () => {
+    const { runCli } = await import("../src/cli/index.js");
+    const tempDir = await mkdtemp(join(tmpdir(), "batch-cli-dir-"));
+    tempDirs.push(tempDir);
+    const dbPath = join(tempDir, "batch.sqlite");
+    const artifactsDir = join(tempDir, "artifacts");
+    const calendarOut = join(tempDir, "official-events.json");
+    const inputDir = join(tempDir, "input");
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    await mkdir(inputDir, { recursive: true });
+    const store = new SqliteStore(dbPath);
+    try {
+      store.insertBars("1m", [{
+        symbol: "MNQ",
+        contract: "H26",
+        tsUtc: "2018-01-01T00:00:00.000Z",
+        open: 99,
+        high: 100,
+        low: 98,
+        close: 99.5,
+        volume: 1,
+        sessionLabel: "CLOSED"
+      }]);
+    } finally {
+      store.close();
+    }
+    await writeFile(
+      join(inputDir, "mnq-2026-04-10.csv"),
+      [
+        "tsUtc,contract,open,high,low,close,volume",
+        "2026-04-10T00:00:00.000Z,H26,100,101,99,100.5,1",
+        "2026-04-10T00:01:00.000Z,H26,100.5,102,100,101.5,1"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const output: string[] = [];
+    await runCli(["batch", "--db", dbPath, "--artifacts-dir", artifactsDir, "--out", calendarOut, "--input-dir", inputDir], {
+      log: (message: string) => {
+        output.push(message);
+      }
+    });
+
+    expect(output.some((line) => line.includes("Batch status: completed"))).toBe(true);
+    expect(output.some((line) => line.includes("Scanned 1 CSV files"))).toBe(true);
+
+    const batchDirEntries = await readdir(join(artifactsDir, "batch"));
+    const batchJson = batchDirEntries.find((entry) => entry.endsWith(".json"))!;
+    const batchArtifact = JSON.parse(await readFile(join(artifactsDir, "batch", batchJson), "utf8")) as {
+      status: string;
+      ingestionSummary: {
+        inputMode: string;
+        newFileCount: number;
+        insertedBarCount: number;
+      } | null;
+      steps: Array<{ step: string; status: string }>;
+    };
+    expect(batchArtifact.status).toBe("completed");
+    expect(batchArtifact.steps[1]?.status).toBe("completed");
+    expect(batchArtifact.ingestionSummary?.inputMode).toBe("dir");
+    expect(batchArtifact.ingestionSummary?.newFileCount).toBe(1);
+    expect(batchArtifact.ingestionSummary?.insertedBarCount).toBe(2);
+  });
+
   it("stops on paper failure and still writes a failed batch artifact", async () => {
     const { runCli } = await import("../src/cli/index.js");
     const tempDir = await mkdtemp(join(tmpdir(), "batch-cli-fail-"));
@@ -234,5 +300,42 @@ describe("batch CLI", () => {
     expect(batchArtifact.failedStep).toBe("paper");
     expect(batchArtifact.steps.some((step) => step.step === "research")).toBe(false);
     expect(batchArtifact.steps.some((step) => step.step === "artifacts")).toBe(false);
+  });
+
+  it("stops at ingest when an input directory contains a failing CSV", async () => {
+    const { runCli } = await import("../src/cli/index.js");
+    const tempDir = await mkdtemp(join(tmpdir(), "batch-cli-ingest-fail-"));
+    tempDirs.push(tempDir);
+    const dbPath = join(tempDir, "batch.sqlite");
+    const artifactsDir = join(tempDir, "artifacts");
+    const calendarOut = join(tempDir, "official-events.json");
+    const inputDir = join(tempDir, "input");
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    await mkdir(inputDir, { recursive: true });
+    await writeFile(
+      join(inputDir, "bad.csv"),
+      [
+        "tsUtc,contract,open,high,low,close,volume",
+        "2026-04-10T00:00:30.000Z,H26,100,101,99,100.5,1"
+      ].join("\n"),
+      "utf8"
+    );
+
+    await expect(
+      runCli(["batch", "--db", dbPath, "--artifacts-dir", artifactsDir, "--out", calendarOut, "--input-dir", inputDir], {
+        log: () => undefined
+      })
+    ).rejects.toThrow("batch failed at step ingest");
+
+    const batchEntries = await readdir(join(artifactsDir, "batch"));
+    const batchJson = batchEntries.find((entry) => entry.endsWith(".json"))!;
+    const batchArtifact = JSON.parse(await readFile(join(artifactsDir, "batch", batchJson), "utf8")) as {
+      status: string;
+      failedStep: string | null;
+      steps: Array<{ step: string; status: string }>;
+    };
+    expect(batchArtifact.status).toBe("failed");
+    expect(batchArtifact.failedStep).toBe("ingest");
+    expect(batchArtifact.steps.some((step) => step.step === "paper")).toBe(false);
   });
 });

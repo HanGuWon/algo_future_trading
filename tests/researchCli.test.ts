@@ -15,6 +15,8 @@ const mockArtifact: ResearchReportArtifact = {
     nodeVersion: "v22.0.0",
     dbPath: "mock.sqlite",
     eventWindowCount: 0,
+    inputMode: "none",
+    inputPath: null,
     sourceRange: {
       startUtc: "2018-01-01T00:00:00.000Z",
       endUtc: "2025-12-31T23:59:59.999Z"

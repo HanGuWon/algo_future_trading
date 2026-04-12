@@ -40,6 +40,8 @@ export function renderWalkForwardArtifactMarkdown(artifact: WalkForwardArtifact)
     `- Node: ${artifact.runProvenance.nodeVersion}`,
     `- DB path: ${artifact.runProvenance.dbPath ?? "n/a"}`,
     `- Event windows used: ${artifact.runProvenance.eventWindowCount}`,
+    `- Input mode: ${artifact.runProvenance.inputMode}`,
+    `- Input path: ${artifact.runProvenance.inputPath ?? "n/a"}`,
     `- Source range: ${artifact.runProvenance.sourceRange ? `${artifact.runProvenance.sourceRange.startUtc} -> ${artifact.runProvenance.sourceRange.endUtc}` : "n/a"}`,
     `- Selected windows: ${artifact.windows.filter((window) => window.status === "selected").length}/${artifact.windows.length}`,
     ``,

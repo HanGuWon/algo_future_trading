@@ -12,6 +12,7 @@ import type {
   DateRange,
   EventWindow,
   ParameterCandidate,
+  InputMode,
   RunMetrics,
   StrategyConfig,
   WalkForwardArtifact,
@@ -121,7 +122,9 @@ export class WalkForwardRunner {
     private readonly candidatesOverride?: ParameterCandidate[],
     private readonly baseConfig: StrategyConfig = DEFAULT_STRATEGY_CONFIG,
     private readonly dbPath: string | null = null,
-    private readonly gitCommitSha?: string | null
+    private readonly gitCommitSha?: string | null,
+    private readonly inputMode: InputMode = "none",
+    private readonly inputPath: string | null = null
   ) {}
 
   run(): WalkForwardArtifact {
@@ -146,7 +149,9 @@ export class WalkForwardRunner {
         eventWindowCount: this.eventWindows.length,
         bars: this.bars,
         sourceRange,
-        gitCommitSha: this.gitCommitSha
+        gitCommitSha: this.gitCommitSha,
+        inputMode: this.inputMode,
+        inputPath: this.inputPath
       }),
       mode: this.options.mode,
       sourceRange,

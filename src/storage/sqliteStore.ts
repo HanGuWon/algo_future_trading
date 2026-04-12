@@ -1,7 +1,16 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Bar, EventWindow, PersistedPaperState, Timeframe, TradeRecord, TradeSource } from "../types.js";
+import type {
+  Bar,
+  DateRange,
+  EventWindow,
+  IngestionFileRecord,
+  PersistedPaperState,
+  Timeframe,
+  TradeRecord,
+  TradeSource
+} from "../types.js";
 
 export class SqliteStore {
   private readonly db: DatabaseSync;
@@ -64,6 +73,19 @@ export class SqliteStore {
         processed_through_utc TEXT,
         updated_at_utc TEXT NOT NULL,
         PRIMARY KEY (strategy_id, symbol)
+      );
+      CREATE TABLE IF NOT EXISTS ingestion_files (
+        file_path TEXT PRIMARY KEY,
+        file_size_bytes INTEGER NOT NULL,
+        file_modified_time_utc TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        detected_contract TEXT,
+        first_ts_utc TEXT,
+        last_ts_utc TEXT,
+        rows_inserted INTEGER NOT NULL,
+        processed_at_utc TEXT NOT NULL,
+        status TEXT NOT NULL,
+        failure_reason TEXT
       );
     `);
     this.ensureTradeSourceColumn();
@@ -277,7 +299,93 @@ export class SqliteStore {
     );
   }
 
-  countRows(table: "trades" | "paper_state"): number {
+  getIngestionFile(filePath: string): IngestionFileRecord | null {
+    const statement = this.db.prepare(`
+      SELECT file_path, file_size_bytes, file_modified_time_utc, content_hash, detected_contract,
+             first_ts_utc, last_ts_utc, rows_inserted, processed_at_utc, status, failure_reason
+      FROM ingestion_files
+      WHERE file_path = ?
+    `);
+    const row = statement.get(filePath) as Record<string, unknown> | undefined;
+    if (!row) {
+      return null;
+    }
+    return {
+      filePath: String(row.file_path),
+      fileSizeBytes: Number(row.file_size_bytes),
+      fileModifiedTimeUtc: String(row.file_modified_time_utc),
+      contentHash: String(row.content_hash),
+      detectedContract: row.detected_contract ? String(row.detected_contract) : null,
+      firstTsUtc: row.first_ts_utc ? String(row.first_ts_utc) : null,
+      lastTsUtc: row.last_ts_utc ? String(row.last_ts_utc) : null,
+      rowsInserted: Number(row.rows_inserted),
+      processedAtUtc: String(row.processed_at_utc),
+      status: row.status as IngestionFileRecord["status"],
+      failureReason: row.failure_reason ? String(row.failure_reason) : undefined
+    };
+  }
+
+  upsertIngestionFile(record: IngestionFileRecord): void {
+    const statement = this.db.prepare(`
+      INSERT OR REPLACE INTO ingestion_files (
+        file_path, file_size_bytes, file_modified_time_utc, content_hash, detected_contract,
+        first_ts_utc, last_ts_utc, rows_inserted, processed_at_utc, status, failure_reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    statement.run(
+      record.filePath,
+      record.fileSizeBytes,
+      record.fileModifiedTimeUtc,
+      record.contentHash,
+      record.detectedContract,
+      record.firstTsUtc,
+      record.lastTsUtc,
+      record.rowsInserted,
+      record.processedAtUtc,
+      record.status,
+      record.failureReason ?? null
+    );
+  }
+
+  listIngestionFiles(): IngestionFileRecord[] {
+    const statement = this.db.prepare(`
+      SELECT file_path, file_size_bytes, file_modified_time_utc, content_hash, detected_contract,
+             first_ts_utc, last_ts_utc, rows_inserted, processed_at_utc, status, failure_reason
+      FROM ingestion_files
+      ORDER BY file_path ASC
+    `);
+    return statement.all().map((row) => ({
+      filePath: String(row.file_path),
+      fileSizeBytes: Number(row.file_size_bytes),
+      fileModifiedTimeUtc: String(row.file_modified_time_utc),
+      contentHash: String(row.content_hash),
+      detectedContract: row.detected_contract ? String(row.detected_contract) : null,
+      firstTsUtc: row.first_ts_utc ? String(row.first_ts_utc) : null,
+      lastTsUtc: row.last_ts_utc ? String(row.last_ts_utc) : null,
+      rowsInserted: Number(row.rows_inserted),
+      processedAtUtc: String(row.processed_at_utc),
+      status: row.status as IngestionFileRecord["status"],
+      failureReason: row.failure_reason ? String(row.failure_reason) : undefined
+    }));
+  }
+
+  getBarRange(symbol: string, timeframe: Timeframe): DateRange | null {
+    const statement = this.db.prepare(`
+      SELECT MIN(ts_utc) AS start_utc, MAX(ts_utc) AS end_utc
+      FROM bars
+      WHERE symbol = ? AND timeframe = ?
+    `);
+    const row = statement.get(symbol, timeframe) as { start_utc?: string | null; end_utc?: string | null } | undefined;
+    if (!row?.start_utc || !row?.end_utc) {
+      return null;
+    }
+    return {
+      startUtc: String(row.start_utc),
+      endUtc: String(row.end_utc)
+    };
+  }
+
+  countRows(table: "trades" | "paper_state" | "ingestion_files" | "bars"): number {
     const statement = this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`);
     const row = statement.get() as { count?: number } | undefined;
     return Number(row?.count ?? 0);

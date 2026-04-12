@@ -13,7 +13,7 @@ describe("artifacts CLI", () => {
     }
   });
 
-  it("builds index json and markdown for latest paper/research/walkforward artifacts", async () => {
+  it("builds index json and markdown for latest paper/research/walkforward/batch artifacts", async () => {
     const { runCli } = await import("../src/cli/index.js");
     const artifactsDir = await mkdtemp(join(tmpdir(), "artifact-index-"));
     tempDirs.push(artifactsDir);
@@ -67,8 +67,10 @@ describe("artifacts CLI", () => {
 
     const paperDir = join(artifactsDir, "paper");
     const researchDir = join(artifactsDir, "research");
+    const batchDir = join(artifactsDir, "batch");
     await mkdir(paperDir, { recursive: true });
     await mkdir(researchDir, { recursive: true });
+    await mkdir(batchDir, { recursive: true });
     await writeFile(
       join(paperDir, "paper-report-2026-04-11T00-00-00-000Z.json"),
       JSON.stringify({
@@ -277,6 +279,46 @@ describe("artifacts CLI", () => {
       "utf8"
     );
     await writeFile(join(researchDir, "research-report-2026-04-11T00-00-00-000Z.md"), "# Research Report", "utf8");
+    await writeFile(
+      join(batchDir, "batch-run-2026-04-11T00-00-00-000Z.json"),
+      JSON.stringify({
+        generatedAtUtc: "2026-04-11T00:00:00.000Z",
+        completedAtUtc: "2026-04-11T00:05:00.000Z",
+        status: "completed",
+        failedStep: null,
+        strategyId: "SessionFilteredTrendPullback_v1",
+        config: {
+          path: "config/strategies/session-filtered-trend-pullback-v1.json",
+          sha256: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          summary: "batch-profile"
+        },
+        runProvenance: {
+          gitCommitSha: "abc123",
+          nodeVersion: "v22.0.0",
+          dbPath: "data/test.sqlite",
+          eventWindowCount: 0,
+          inputMode: "dir",
+          inputPath: "C:\\\\data\\\\mnq",
+          sourceRange: null
+        },
+        ingestionSummary: {
+          inputMode: "dir",
+          inputPath: "C:\\\\data\\\\mnq",
+          scannedFileCount: 2,
+          newFileCount: 1,
+          skippedFileCount: 1,
+          failedFileCount: 0,
+          insertedBarCount: 120,
+          sourceRange: {
+            startUtc: "2026-04-10T00:00:00.000Z",
+            endUtc: "2026-04-10T01:59:00.000Z"
+          },
+          contracts: ["H26"]
+        },
+        steps: []
+      }),
+      "utf8"
+    );
 
     const output: string[] = [];
     await runCli(["artifacts", "--artifacts-dir", artifactsDir], {
@@ -289,8 +331,9 @@ describe("artifacts CLI", () => {
     expect(output.some((line) => line.includes("Latest paper:"))).toBe(true);
     expect(output.some((line) => line.includes("Latest research:"))).toBe(true);
     expect(output.some((line) => line.includes("Latest walk-forward:"))).toBe(true);
-    expect(output.some((line) => line.includes("Config profiles shown: 3"))).toBe(true);
-    expect(output.some((line) => line.includes("Config profiles total: 3"))).toBe(true);
+    expect(output.some((line) => line.includes("Latest batch:"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles shown: 4"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles total: 4"))).toBe(true);
     expect(output.some((line) => line.includes("Top config group:"))).toBe(true);
 
     const topFiles = await readdir(artifactsDir);
@@ -301,6 +344,7 @@ describe("artifacts CLI", () => {
     expect(indexMarkdown).toContain("fast=20 slow=120 score=3 postEvent=60");
     expect(indexMarkdown).toContain("aaaaaaaaaaaa");
     expect(indexMarkdown).toContain("cccccccccccc");
+    expect(indexMarkdown).toContain("Latest batch");
   });
 
   it("filters the artifact index by config hash prefix", async () => {

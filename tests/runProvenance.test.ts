@@ -54,5 +54,24 @@ describe("run provenance", () => {
     expect(provenance.dbPath).toBe("data/test.sqlite");
     expect(provenance.eventWindowCount).toBe(3);
     expect(provenance.sourceRange?.startUtc).toBe("2026-04-10T00:00:00.000Z");
+    expect(provenance.inputMode).toBe("none");
+    expect(provenance.inputPath).toBeNull();
+  });
+
+  it("records explicit input context", () => {
+    const provenance = buildRunProvenance({
+      dbPath: "data/test.sqlite",
+      eventWindowCount: 1,
+      sourceRange: {
+        startUtc: "2026-04-10T00:00:00.000Z",
+        endUtc: "2026-04-10T01:00:00.000Z"
+      },
+      gitCommitSha: "abc123",
+      inputMode: "dir",
+      inputPath: "C:\\data\\mnq"
+    });
+
+    expect(provenance.inputMode).toBe("dir");
+    expect(provenance.inputPath).toBe("C:\\data\\mnq");
   });
 });

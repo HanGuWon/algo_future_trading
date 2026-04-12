@@ -1,6 +1,6 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { BacktestEngine } from "../backtest/engine.js";
 import { OfficialCalendarProvider } from "../calendars/officialCalendarProvider.js";
 import {
@@ -14,7 +14,7 @@ import {
   MNQ_SPEC
 } from "../config/defaults.js";
 import { describeStrategyConfig, loadStrategyConfig } from "../config/strategyLoader.js";
-import { aggregateBars, parseCsvBarsDetailed } from "../data/barAggregation.js";
+import { ingestCsvDirectory, ingestCsvFile } from "../data/fileIngestion.js";
 import { PaperEngine } from "../paper/paperEngine.js";
 import { writeBatchArtifact } from "../reporting/batchArtifacts.js";
 import { writeArtifactIndex } from "../reporting/artifactIndex.js";
@@ -35,8 +35,11 @@ import { buildRunProvenance } from "../utils/runProvenance.js";
 import type { ArtifactKind, ArtifactSortBy } from "../reporting/artifactIndex.js";
 import type {
   BatchRunArtifact,
+  BatchIngestionSummary,
   BatchStepResult,
   DateRange,
+  IngestionRunSummary,
+  InputMode,
   PaperReportArtifact,
   ResearchReportArtifact,
   RunProvenance,
@@ -82,9 +85,7 @@ async function loadCliStrategyContext(
 }
 
 interface IngestCommandResult {
-  rowCount: number;
-  range: DateRange;
-  contracts: string[];
+  summary: IngestionRunSummary;
   warnings: string[];
   dbPath: string;
 }
@@ -122,48 +123,100 @@ function rangeFromOptionalBounds(startUtc?: string | null, endUtc?: string | nul
   return { startUtc, endUtc };
 }
 
+function resolveInputContext(options: Map<string, string>): { inputMode: InputMode; inputPath: string | null } {
+  const file = options.get("file");
+  const dir = options.get("dir") ?? options.get("input-dir");
+  if (file && dir) {
+    throw new Error("Use either --file or --dir/--input-dir, not both.");
+  }
+  if (file) {
+    return {
+      inputMode: "file",
+      inputPath: resolve(file)
+    };
+  }
+  if (dir) {
+    return {
+      inputMode: "dir",
+      inputPath: resolve(dir)
+    };
+  }
+  return {
+    inputMode: "none",
+    inputPath: null
+  };
+}
+
 async function ingestCommand(
   options: Map<string, string>,
   logger: Pick<Console, "log"> = console
 ): Promise<IngestCommandResult> {
-  const file = options.get("file");
-  if (!file) {
-    throw new Error("ingest requires --file <csv>");
-  }
   const dbPath = options.get("db") ?? DEFAULT_DB_PATH;
   const symbol = options.get("symbol") ?? "MNQ";
   const contractFallback = options.get("contract") ?? "UNKNOWN";
-  const raw = await readFile(file, "utf8");
-  const parsed = parseCsvBarsDetailed(raw, symbol, contractFallback);
-  const bars1m = parsed.bars;
+  const input = resolveInputContext(options);
+  if (input.inputMode === "none") {
+    throw new Error("ingest requires --file <csv> or --dir <folder>");
+  }
   const store = new SqliteStore(dbPath);
   try {
-    store.insertBars("1m", bars1m);
-    store.insertBars("5m", aggregateBars(bars1m, "5m"));
-    store.insertBars("15m", aggregateBars(bars1m, "15m"));
-    store.insertBars("1h", aggregateBars(bars1m, "1h"));
+    if (input.inputMode === "file") {
+      const result = await ingestCsvFile(input.inputPath!, {
+        store,
+        symbol,
+        contractFallback
+      });
+      logger.log(
+        result.status === "processed"
+          ? `Ingested ${result.rowCount} raw 1m bars into ${dbPath}`
+          : `Skipped previously processed file ${input.inputPath}`
+      );
+      logger.log(
+        `Range: ${result.range ? `${result.range.startUtc} -> ${result.range.endUtc}` : "n/a"}`
+      );
+      logger.log(`Contracts: ${result.contracts.length > 0 ? result.contracts.join(", ") : "none"}`);
+      for (const warning of result.warnings) {
+        logger.log(`Warning: ${warning}`);
+      }
+      return {
+        summary: {
+          inputMode: "file",
+          inputPath: input.inputPath!,
+          scannedFileCount: 1,
+          newFileCount: result.status === "processed" ? 1 : 0,
+          skippedFileCount: result.status === "skipped" ? 1 : 0,
+          failedFileCount: 0,
+          insertedBarCount: result.rowCount,
+          sourceRange: result.range,
+          contracts: result.contracts
+        },
+        warnings: result.warnings,
+        dbPath
+      };
+    }
+
+    const result = await ingestCsvDirectory(input.inputPath!, {
+      store,
+      symbol,
+      contractFallback
+    });
+    logger.log(`Scanned ${result.scannedFileCount} CSV files from ${input.inputPath}`);
+    logger.log(`New files: ${result.newFileCount}`);
+    logger.log(`Skipped files: ${result.skippedFileCount}`);
+    logger.log(`Failed files: ${result.failedFileCount}`);
+    logger.log(`Inserted 1m bars: ${result.insertedBarCount}`);
+    logger.log(
+      `Range: ${result.sourceRange ? `${result.sourceRange.startUtc} -> ${result.sourceRange.endUtc}` : "n/a"}`
+    );
+    logger.log(`Contracts: ${result.contracts.length > 0 ? result.contracts.join(", ") : "none"}`);
+    return {
+      summary: result,
+      warnings: [],
+      dbPath
+    };
   } finally {
     store.close();
   }
-  logger.log(`Ingested ${bars1m.length} raw 1m bars into ${dbPath}`);
-  logger.log(`Range: ${parsed.summary.firstTsUtc} -> ${parsed.summary.lastTsUtc}`);
-  logger.log(`Contracts: ${parsed.summary.contracts.join(", ")}`);
-  if (parsed.summary.usedFallbackContract) {
-    logger.log(`Fallback contract in use: ${contractFallback}`);
-  }
-  for (const warning of parsed.warnings) {
-    logger.log(`Warning: ${warning}`);
-  }
-  return {
-    rowCount: bars1m.length,
-    range: {
-      startUtc: parsed.summary.firstTsUtc,
-      endUtc: parsed.summary.lastTsUtc
-    },
-    contracts: parsed.summary.contracts,
-    warnings: parsed.warnings,
-    dbPath
-  };
 }
 
 async function syncCalendarsCommand(
@@ -277,7 +330,8 @@ async function paperCommand(
       runProvenance: buildRunProvenance({
         dbPath,
         eventWindowCount: eventWindows.length,
-        bars: bars1m
+        bars: bars1m,
+        ...resolveInputContext(options)
       }),
       source: "PAPER",
       run: {
@@ -360,7 +414,10 @@ async function walkforwardCommand(
       },
       undefined,
       strategy.config,
-      dbPath
+      dbPath,
+      undefined,
+      resolveInputContext(options).inputMode,
+      resolveInputContext(options).inputPath
     );
     const artifact = runner.run();
     artifact.config = strategy.reference;
@@ -401,7 +458,9 @@ async function researchCommand(
     const eventWindows = store.getEventWindows(ACCEPTANCE_SPLIT.trainStart, ACCEPTANCE_SPLIT.testEnd);
     const runner = new ResearchReportRunner(bars1m, eventWindows, {
       baseConfig: strategy.config,
-      dbPath
+      dbPath,
+      inputMode: resolveInputContext(options).inputMode,
+      inputPath: resolveInputContext(options).inputPath
     });
     const artifact = runner.run();
     artifact.config = strategy.reference;
@@ -461,11 +520,11 @@ async function artifactsCommand(
   }
   const rawKind = options.get("kind");
   const kind =
-    rawKind === "paper" || rawKind === "research" || rawKind === "walkforward"
+    rawKind === "paper" || rawKind === "research" || rawKind === "walkforward" || rawKind === "batch"
       ? (rawKind as ArtifactKind)
       : null;
   if (rawKind && !kind) {
-    throw new Error("artifacts --kind must be one of: paper, research, walkforward");
+    throw new Error("artifacts --kind must be one of: paper, research, walkforward, batch");
   }
   const result = await writeArtifactIndex(artifactsDir, configHash, kind, gatePassOnly, sortBy, latestOnly, limit);
   logger.log("Artifact index complete");
@@ -478,6 +537,7 @@ async function artifactsCommand(
   logger.log(`Paper reports: ${result.index.counts.paper}`);
   logger.log(`Research reports: ${result.index.counts.research}`);
   logger.log(`Walk-forward reports: ${result.index.counts.walkforward}`);
+  logger.log(`Batch reports: ${result.index.counts.batch}`);
   logger.log(`Config profiles shown: ${result.index.byConfigHash.length}`);
   logger.log(`Config profiles total: ${result.index.totalConfigProfiles}`);
   if (result.index.latest.paper) {
@@ -488,6 +548,9 @@ async function artifactsCommand(
   }
   if (result.index.latest.walkforward) {
     logger.log(`Latest walk-forward: ${result.index.latest.walkforward.headline}`);
+  }
+  if (result.index.latest.batch) {
+    logger.log(`Latest batch: ${result.index.latest.batch.headline}`);
   }
   if (result.index.byConfigHash[0]) {
     logger.log(`Top config group: ${result.index.byConfigHash[0].summary} (${result.index.byConfigHash[0].sha256.slice(0, 12)})`);
@@ -505,10 +568,12 @@ async function batchCommand(options: Map<string, string>, logger: Pick<Console, 
   const batchStartedAtUtc = new Date().toISOString();
   let failedStep: BatchStepResult["step"] | null = null;
   let finalStatus: BatchRunArtifact["status"] = "completed";
+  let ingestionSummary: BatchIngestionSummary | null = null;
   let batchProvenance: RunProvenance = buildRunProvenance({
     dbPath,
     eventWindowCount: 0,
-    sourceRange: rangeFromOptionalBounds(options.get("start"), options.get("end"))
+    sourceRange: rangeFromOptionalBounds(options.get("start"), options.get("end")),
+    ...resolveInputContext(options)
   });
 
   async function runBatchStep(
@@ -551,20 +616,24 @@ async function batchCommand(options: Map<string, string>, logger: Pick<Console, 
         provenance: buildRunProvenance({
           dbPath,
           eventWindowCount: result.windowsCount,
-          sourceRange: rangeFromOptionalBounds(options.get("start"), options.get("end"))
+          sourceRange: rangeFromOptionalBounds(options.get("start"), options.get("end")),
+          ...resolveInputContext(options)
         })
       };
     });
 
-    if (options.get("file")) {
+    if (options.get("file") || options.get("input-dir") || options.get("dir")) {
       await runBatchStep("ingest", async () => {
         const result = await ingestCommand(options, logger);
+        ingestionSummary = result.summary;
         return {
-          message: `ingested ${result.rowCount} bars`,
+          message: `ingest new files ${result.summary.newFileCount}, bars ${result.summary.insertedBarCount}`,
           provenance: buildRunProvenance({
             dbPath,
             eventWindowCount: batchProvenance.eventWindowCount,
-            sourceRange: result.range
+            sourceRange: result.summary.sourceRange,
+            inputMode: result.summary.inputMode,
+            inputPath: result.summary.inputPath
           })
         };
       });
@@ -574,7 +643,7 @@ async function batchCommand(options: Map<string, string>, logger: Pick<Console, 
         status: "skipped",
         startedAtUtc: new Date().toISOString(),
         completedAtUtc: new Date().toISOString(),
-        message: "no --file provided"
+        message: "no --file or --input-dir provided"
       });
     }
 
@@ -616,6 +685,7 @@ async function batchCommand(options: Map<string, string>, logger: Pick<Console, 
     strategyId: strategy.config.strategyId,
     config: strategy.reference,
     runProvenance: batchProvenance,
+    ingestionSummary,
     steps
   };
   const batchArtifactPath = await writeBatchArtifact(batchArtifact, artifactsDir);
@@ -659,9 +729,9 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
       return;
     default:
       logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper, batch");
-      logger.log('ingest options: --file <csv> [--db path] [--symbol MNQ] [--contract H26]');
-      logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward] [--gate-pass-only] [--sort-by generated_at|net_pnl|expectancy] [--latest-only] [--limit N]');
-      logger.log('batch options: [--db path] [--config path] [--artifacts-dir path] [--file csv] [--contract H26] [--start iso] [--end iso]');
+      logger.log('ingest options: (--file <csv> | --dir <folder>) [--db path] [--symbol MNQ] [--contract H26]');
+      logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward|batch] [--gate-pass-only] [--sort-by generated_at|net_pnl|expectancy] [--latest-only] [--limit N]');
+      logger.log('batch options: [--db path] [--config path] [--artifacts-dir path] [--file csv | --input-dir folder] [--contract H26] [--start iso] [--end iso]');
       logger.log(`strategy options: [--config ${DEFAULT_STRATEGY_CONFIG_PATH}]`);
   }
 }

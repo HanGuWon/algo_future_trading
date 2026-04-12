@@ -87,4 +87,110 @@ describe("CLI ingest command", () => {
       store.close();
     }
   });
+
+  it("scans a directory, ingests only new CSV files, and skips already processed files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mnq-ingest-dir-"));
+    const dbPath = join(root, "mnq.sqlite");
+    await writeFile(join(root, ".keep"), "", "utf8");
+    await writeFile(join(root, "ignore.txt"), "ignored", "utf8");
+    await writeFile(
+      join(root, "a.csv"),
+      buildCsv([
+        "2026-01-02T14:30:00.000Z,H26,100,101,99,100.5,10",
+        "2026-01-02T14:31:00.000Z,H26,100.5,102,100,101.5,12"
+      ]),
+      "utf8"
+    );
+    await writeFile(
+      join(root, "b.csv"),
+      buildCsv([
+        "2026-01-02T14:32:00.000Z,H26,101.5,103,101,102.5,14",
+        "2026-01-02T14:33:00.000Z,H26,102.5,104,102,103.5,16"
+      ]),
+      "utf8"
+    );
+
+    const firstOutput: string[] = [];
+    await runCli(["ingest", "--dir", root, "--db", dbPath], {
+      log: (message: string) => {
+        firstOutput.push(message);
+      }
+    });
+
+    expect(firstOutput.some((line) => line.includes("Scanned 2 CSV files"))).toBe(true);
+    expect(firstOutput.some((line) => line.includes("New files: 2"))).toBe(true);
+    expect(firstOutput.some((line) => line.includes("Skipped files: 0"))).toBe(true);
+
+    const secondOutput: string[] = [];
+    await runCli(["ingest", "--dir", root, "--db", dbPath], {
+      log: (message: string) => {
+        secondOutput.push(message);
+      }
+    });
+
+    expect(secondOutput.some((line) => line.includes("New files: 0"))).toBe(true);
+    expect(secondOutput.some((line) => line.includes("Skipped files: 2"))).toBe(true);
+
+    const store = new SqliteStore(dbPath);
+    try {
+      expect(store.getBars("MNQ", "1m")).toHaveLength(4);
+      expect(store.listIngestionFiles()).toHaveLength(2);
+      expect(store.listIngestionFiles().every((record) => record.status === "processed")).toBe(true);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("fails when a previously processed file changes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mnq-ingest-update-"));
+    const csvPath = join(root, "mnq.csv");
+    const dbPath = join(root, "mnq.sqlite");
+    await writeFile(
+      csvPath,
+      buildCsv([
+        "2026-01-02T14:30:00.000Z,H26,100,101,99,100.5,10"
+      ]),
+      "utf8"
+    );
+
+    await runCli(["ingest", "--file", csvPath, "--db", dbPath], { log: () => undefined });
+
+    await writeFile(
+      csvPath,
+      buildCsv([
+        "2026-01-02T14:30:00.000Z,H26,100,101,99,100.5,10",
+        "2026-01-02T14:31:00.000Z,H26,100.5,102,100,101.5,12"
+      ]),
+      "utf8"
+    );
+
+    await expect(runCli(["ingest", "--file", csvPath, "--db", dbPath], { log: () => undefined })).rejects.toThrow(
+      /reprocessing is blocked/i
+    );
+
+    const store = new SqliteStore(dbPath);
+    try {
+      const record = store.getIngestionFile(csvPath);
+      expect(record?.status).toBe("failed");
+      expect(record?.failureReason).toMatch(/reprocessing is blocked/i);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("rejects using --file and --dir together", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mnq-ingest-conflict-"));
+    const csvPath = join(root, "mnq.csv");
+    await writeFile(
+      csvPath,
+      buildCsv([
+        "2026-01-02T14:30:00.000Z,H26,100,101,99,100.5,10"
+      ]),
+      "utf8"
+    );
+
+    await expect(
+      runCli(["ingest", "--file", csvPath, "--dir", root], { log: () => undefined })
+    ).rejects.toThrow(/either --file or --dir/i);
+  });
 });
