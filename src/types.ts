@@ -15,6 +15,16 @@ export type StrategyId = "SessionFilteredTrendPullback_v1";
 export type TradeSource = "BACKTEST" | "PAPER";
 export type InputMode = "file" | "dir" | "none";
 export type IngestionFileStatus = "processed" | "failed";
+export type DailyHealthStatus = "OK" | "WARN" | "FAIL";
+export type DailyWarningCode =
+  | "NO_NEW_FILES"
+  | "ZERO_INSERTED_BARS"
+  | "INGEST_FAILED_FILES"
+  | "NO_NEW_PAPER_TRADES"
+  | "RESEARCH_GATE_FAILED"
+  | "RESEARCH_MORE"
+  | "STALE_SOURCE_RANGE"
+  | "BATCH_FAILED";
 
 export interface Bar {
   symbol: string;
@@ -555,15 +565,36 @@ export interface LatestArtifactPointers {
   batchJsonPath: string | null;
   paperJsonPath: string | null;
   researchJsonPath: string | null;
+  dailyJsonPath: string | null;
+  dailyMarkdownPath: string | null;
+}
+
+export interface DailyHealthCheckResult {
+  code: DailyWarningCode;
+  severity: "WARN" | "FAIL";
+  passed: boolean;
+  message: string;
 }
 
 export interface DailyRunSummary {
   generatedAtUtc: string;
   batchStatus: BatchRunArtifact["status"];
   failedStep: BatchRunArtifact["failedStep"];
+  overallStatus: DailyHealthStatus;
+  warningCodes: DailyWarningCode[];
+  warningMessages: string[];
+  healthChecks: DailyHealthCheckResult[];
   ingestionSummary: BatchIngestionSummary | null;
   paperNewTrades: number | null;
   researchRecommendation: ResearchReportArtifact["finalAssessment"]["recommendation"] | null;
   researchGatePass: boolean | null;
   artifactPaths: LatestArtifactPointers;
+}
+
+export interface DailyRunArtifact extends DailyRunSummary {
+  config: StrategyConfigReference | null;
+  runProvenance: RunProvenance | null;
+  batchGeneratedAtUtc: string | null;
+  paperGeneratedAtUtc: string | null;
+  researchGeneratedAtUtc: string | null;
 }

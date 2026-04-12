@@ -13,7 +13,7 @@ describe("artifacts CLI", () => {
     }
   });
 
-  it("builds index json and markdown for latest paper/research/walkforward/batch artifacts", async () => {
+  it("builds index json and markdown for latest paper/research/walkforward/batch/daily artifacts", async () => {
     const { runCli } = await import("../src/cli/index.js");
     const artifactsDir = await mkdtemp(join(tmpdir(), "artifact-index-"));
     tempDirs.push(artifactsDir);
@@ -68,9 +68,11 @@ describe("artifacts CLI", () => {
     const paperDir = join(artifactsDir, "paper");
     const researchDir = join(artifactsDir, "research");
     const batchDir = join(artifactsDir, "batch");
+    const dailyDir = join(artifactsDir, "daily");
     await mkdir(paperDir, { recursive: true });
     await mkdir(researchDir, { recursive: true });
     await mkdir(batchDir, { recursive: true });
+    await mkdir(dailyDir, { recursive: true });
     await writeFile(
       join(paperDir, "paper-report-2026-04-11T00-00-00-000Z.json"),
       JSON.stringify({
@@ -319,6 +321,55 @@ describe("artifacts CLI", () => {
       }),
       "utf8"
     );
+    await writeFile(
+      join(dailyDir, "daily-run-2026-04-11T00-10-00-000Z.json"),
+      JSON.stringify({
+        generatedAtUtc: "2026-04-11T00:10:00.000Z",
+        overallStatus: "WARN",
+        batchStatus: "completed",
+        failedStep: null,
+        config: {
+          path: "config/strategies/session-filtered-trend-pullback-v1.json",
+          sha256: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          summary: "daily-profile"
+        },
+        runProvenance: {
+          gitCommitSha: "abc123",
+          nodeVersion: "v22.0.0",
+          dbPath: "data/test.sqlite",
+          eventWindowCount: 0,
+          inputMode: "dir",
+          inputPath: "C:\\\\data\\\\mnq",
+          sourceRange: null
+        },
+        warningCodes: ["NO_NEW_FILES"],
+        warningMessages: ["No new CSV files were ingested in this run."],
+        healthChecks: [
+          {
+            code: "NO_NEW_FILES",
+            severity: "WARN",
+            passed: false,
+            message: "No new CSV files were ingested in this run."
+          }
+        ],
+        ingestionSummary: null,
+        paperNewTrades: 0,
+        researchRecommendation: "research_more",
+        researchGatePass: true,
+        artifactPaths: {
+          batchJsonPath: join(batchDir, "batch-run-2026-04-11T00-00-00-000Z.json"),
+          paperJsonPath: join(paperDir, "paper-report-2026-04-11T00-00-00-000Z.json"),
+          researchJsonPath: join(researchDir, "research-report-2026-04-11T00-00-00-000Z.json"),
+          dailyJsonPath: join(dailyDir, "daily-run-2026-04-11T00-10-00-000Z.json"),
+          dailyMarkdownPath: join(dailyDir, "daily-run-2026-04-11T00-10-00-000Z.md")
+        },
+        batchGeneratedAtUtc: "2026-04-11T00:00:00.000Z",
+        paperGeneratedAtUtc: "2026-04-11T00:00:00.000Z",
+        researchGeneratedAtUtc: "2026-04-11T00:00:00.000Z"
+      }),
+      "utf8"
+    );
+    await writeFile(join(dailyDir, "daily-run-2026-04-11T00-10-00-000Z.md"), "# Daily Run", "utf8");
 
     const output: string[] = [];
     await runCli(["artifacts", "--artifacts-dir", artifactsDir], {
@@ -332,8 +383,10 @@ describe("artifacts CLI", () => {
     expect(output.some((line) => line.includes("Latest research:"))).toBe(true);
     expect(output.some((line) => line.includes("Latest walk-forward:"))).toBe(true);
     expect(output.some((line) => line.includes("Latest batch:"))).toBe(true);
-    expect(output.some((line) => line.includes("Config profiles shown: 4"))).toBe(true);
-    expect(output.some((line) => line.includes("Config profiles total: 4"))).toBe(true);
+    expect(output.some((line) => line.includes("Latest daily:"))).toBe(true);
+    expect(output.some((line) => line.includes("Daily reports: 1"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles shown: 5"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles total: 5"))).toBe(true);
     expect(output.some((line) => line.includes("Top config group:"))).toBe(true);
 
     const topFiles = await readdir(artifactsDir);
@@ -345,6 +398,8 @@ describe("artifacts CLI", () => {
     expect(indexMarkdown).toContain("aaaaaaaaaaaa");
     expect(indexMarkdown).toContain("cccccccccccc");
     expect(indexMarkdown).toContain("Latest batch");
+    expect(indexMarkdown).toContain("Latest daily");
+    expect(indexMarkdown).toContain("daily-profile");
   });
 
   it("filters the artifact index by config hash prefix", async () => {

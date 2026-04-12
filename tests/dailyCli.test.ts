@@ -166,14 +166,17 @@ describe("daily CLI", () => {
     expect(latest.pointers.batchJsonPath).toContain("batch-run-2026-04-11");
     expect(latest.pointers.paperJsonPath).toContain("paper-report-2026-04-11");
     expect(latest.pointers.researchJsonPath).toContain("research-report-2026-04-11");
+    expect(latest.pointers.dailyJsonPath).toBeNull();
   });
 
-  it("formats a stable summary payload", () => {
+  it("formats an OK summary payload with health status", () => {
     const summary = buildDailyRunSummary({
       pointers: {
         batchJsonPath: "batch.json",
         paperJsonPath: "paper.json",
-        researchJsonPath: "research.json"
+        researchJsonPath: "research.json",
+        dailyJsonPath: null,
+        dailyMarkdownPath: null
       },
       batchArtifact: {
         generatedAtUtc: "2026-04-12T00:00:00.000Z",
@@ -213,14 +216,134 @@ describe("daily CLI", () => {
         sessionPerformance: []
       },
       researchArtifact: mockPassingResearchArtifact
-    });
+    }, new Date("2026-04-12T00:10:00.000Z"));
 
     const lines = renderDailyRunSummary(summary);
+    expect(summary.overallStatus).toBe("OK");
+    expect(summary.warningCodes).toEqual([]);
+    expect(lines).toContain("Overall status: OK");
     expect(lines).toContain("Batch status: completed");
     expect(lines).toContain("Scanned files: 2");
     expect(lines).toContain("Paper new trades: 2");
     expect(lines).toContain("Research recommendation: continue_paper");
     expect(lines).toContain("Research gate pass: yes");
+  });
+
+  it("returns WARN when no new files or paper trades are produced", () => {
+    const summary = buildDailyRunSummary({
+      pointers: {
+        batchJsonPath: "batch.json",
+        paperJsonPath: "paper.json",
+        researchJsonPath: "research.json",
+        dailyJsonPath: null,
+        dailyMarkdownPath: null
+      },
+      batchArtifact: {
+        generatedAtUtc: "2026-04-12T00:00:00.000Z",
+        completedAtUtc: "2026-04-12T00:05:00.000Z",
+        status: "completed",
+        failedStep: null,
+        strategyId: "SessionFilteredTrendPullback_v1",
+        config: { path: "config/a.json", sha256: "a".repeat(64), summary: "a" },
+        runProvenance: { gitCommitSha: null, nodeVersion: "v22", dbPath: null, eventWindowCount: 0, inputMode: "dir", inputPath: "C:\\data", sourceRange: null },
+        ingestionSummary: {
+          inputMode: "dir",
+          inputPath: "C:\\data",
+          scannedFileCount: 2,
+          newFileCount: 0,
+          skippedFileCount: 2,
+          failedFileCount: 0,
+          insertedBarCount: 0,
+          sourceRange: { startUtc: "2026-04-12T00:00:00.000Z", endUtc: "2026-04-12T01:59:00.000Z" },
+          contracts: ["H26"]
+        },
+        steps: [
+          { step: "paper", status: "completed", startedAtUtc: "", completedAtUtc: "", message: "" },
+          { step: "research", status: "completed", startedAtUtc: "", completedAtUtc: "", message: "" }
+        ]
+      },
+      paperArtifact: {
+        generatedAtUtc: "2026-04-12T00:00:00.000Z",
+        symbol: "MNQ",
+        strategyId: "SessionFilteredTrendPullback_v1",
+        runProvenance: { gitCommitSha: null, nodeVersion: "v22", dbPath: null, eventWindowCount: 0, inputMode: "none", inputPath: null, sourceRange: null },
+        source: "PAPER",
+        run: { startUtc: "", endUtc: null, processedThroughUtc: null, newTradeCount: 0, rejectedSignalCount: 0, artifactVersion: "0.1.0" },
+        activePosition: null,
+        runMetrics: emptyMetrics(0),
+        cumulativeMetrics: emptyMetrics(0),
+        dailyPerformance: [],
+        sessionPerformance: []
+      },
+      researchArtifact: mockPassingResearchArtifact
+    }, new Date("2026-04-12T03:00:00.000Z"));
+
+    expect(summary.overallStatus).toBe("WARN");
+    expect(summary.warningCodes).toContain("NO_NEW_FILES");
+    expect(summary.warningCodes).toContain("ZERO_INSERTED_BARS");
+    expect(summary.warningCodes).toContain("NO_NEW_PAPER_TRADES");
+  });
+
+  it("returns FAIL for stale data, gate failure, and rejected rule set", () => {
+    const summary = buildDailyRunSummary({
+      pointers: {
+        batchJsonPath: "batch.json",
+        paperJsonPath: "paper.json",
+        researchJsonPath: "research.json",
+        dailyJsonPath: null,
+        dailyMarkdownPath: null
+      },
+      batchArtifact: {
+        generatedAtUtc: "2026-04-12T00:00:00.000Z",
+        completedAtUtc: "2026-04-12T00:05:00.000Z",
+        status: "completed",
+        failedStep: null,
+        strategyId: "SessionFilteredTrendPullback_v1",
+        config: { path: "config/a.json", sha256: "a".repeat(64), summary: "a" },
+        runProvenance: { gitCommitSha: null, nodeVersion: "v22", dbPath: null, eventWindowCount: 0, inputMode: "dir", inputPath: "C:\\data", sourceRange: null },
+        ingestionSummary: {
+          inputMode: "dir",
+          inputPath: "C:\\data",
+          scannedFileCount: 1,
+          newFileCount: 1,
+          skippedFileCount: 0,
+          failedFileCount: 0,
+          insertedBarCount: 100,
+          sourceRange: { startUtc: "2026-04-08T00:00:00.000Z", endUtc: "2026-04-08T01:59:00.000Z" },
+          contracts: ["H26"]
+        },
+        steps: [
+          { step: "paper", status: "completed", startedAtUtc: "", completedAtUtc: "", message: "" },
+          { step: "research", status: "completed", startedAtUtc: "", completedAtUtc: "", message: "" }
+        ]
+      },
+      paperArtifact: {
+        generatedAtUtc: "2026-04-12T00:00:00.000Z",
+        symbol: "MNQ",
+        strategyId: "SessionFilteredTrendPullback_v1",
+        runProvenance: { gitCommitSha: null, nodeVersion: "v22", dbPath: null, eventWindowCount: 0, inputMode: "none", inputPath: null, sourceRange: null },
+        source: "PAPER",
+        run: { startUtc: "", endUtc: null, processedThroughUtc: null, newTradeCount: 1, rejectedSignalCount: 0, artifactVersion: "0.1.0" },
+        activePosition: null,
+        runMetrics: emptyMetrics(1),
+        cumulativeMetrics: emptyMetrics(1),
+        dailyPerformance: [],
+        sessionPerformance: []
+      },
+      researchArtifact: {
+        ...mockPassingResearchArtifact,
+        finalAssessment: {
+          ...mockPassingResearchArtifact.finalAssessment,
+          gatePass: false,
+          recommendation: "reject_current_rule_set",
+          gateFailureReasons: ["forced"]
+        }
+      }
+    }, new Date("2026-04-13T00:00:00.000Z"));
+
+    expect(summary.overallStatus).toBe("FAIL");
+    expect(summary.warningCodes).toContain("RESEARCH_GATE_FAILED");
+    expect(summary.warningCodes).toContain("STALE_SOURCE_RANGE");
   });
 
   it("runs daily, prints summary, and exits successfully when no new CSV files arrive", async () => {
@@ -270,10 +393,13 @@ describe("daily CLI", () => {
     });
 
     expect(output.some((line) => line.includes("Daily run summary"))).toBe(true);
+    expect(output.some((line) => line.includes("Overall status: WARN"))).toBe(true);
     expect(output.some((line) => line.includes("Batch status: completed"))).toBe(true);
     expect(output.some((line) => line.includes("New files: 0"))).toBe(true);
+    expect(output.some((line) => line.includes("Warning codes: NO_NEW_FILES, ZERO_INSERTED_BARS, NO_NEW_PAPER_TRADES"))).toBe(true);
     expect(output.some((line) => line.includes("Research recommendation: continue_paper"))).toBe(true);
     expect(output.some((line) => line.includes("Automation schedule: Every day at 06:00 Asia/Seoul"))).toBe(true);
+    expect(output.some((line) => line.includes("Daily artifact JSON:"))).toBe(true);
   });
 
   it("surfaces ingest failure and still prints a summary", async () => {
@@ -304,8 +430,10 @@ describe("daily CLI", () => {
     ).rejects.toThrow("batch failed at step ingest");
 
     expect(output.some((line) => line.includes("Daily run summary"))).toBe(true);
+    expect(output.some((line) => line.includes("Overall status: FAIL"))).toBe(true);
     expect(output.some((line) => line.includes("Batch status: failed"))).toBe(true);
     expect(output.some((line) => line.includes("Failed step: ingest"))).toBe(true);
+    expect(output.some((line) => line.includes("Warning codes: BATCH_FAILED, INGEST_FAILED_FILES"))).toBe(true);
   });
 
   it("builds an automation spec with the expected schedule and command", () => {

@@ -23,6 +23,7 @@ npm run walkforward -- --db data/mnq-research.sqlite --config config/strategies/
 npm run artifacts -- --artifacts-dir artifacts
 npm run artifacts -- --artifacts-dir artifacts --config-hash aaaaaaaa
 npm run artifacts -- --artifacts-dir artifacts --kind paper
+npm run artifacts -- --artifacts-dir artifacts --kind daily
 npm run artifacts -- --artifacts-dir artifacts --gate-pass-only
 npm run artifacts -- --artifacts-dir artifacts --sort-by net_pnl
 npm run artifacts -- --artifacts-dir artifacts --latest-only
@@ -68,7 +69,7 @@ Directory ingest notes:
 - `artifacts` scans the current artifact directory, builds `artifacts/index.json` and `artifacts/index.md`, and prints the latest paper/research/walk-forward/batch summaries.
 - `artifacts` also groups the latest `paper`, `research`, `walkforward`, and `batch` outputs by strategy config hash so different parameter profiles can be compared safely.
 - `artifacts --config-hash <prefix>` narrows the index to one config family and writes `artifacts/index-<prefix>.json|md`.
-- `artifacts --kind paper|research|walkforward|batch` narrows the index to one artifact class and can be combined with `--config-hash`.
+- `artifacts --kind paper|research|walkforward|batch|daily` narrows the index to one artifact class and can be combined with `--config-hash`.
 - `artifacts --gate-pass-only` keeps only config groups whose latest research artifact passes the built-in research gates.
 - `artifacts --sort-by generated_at|net_pnl|expectancy` changes how config groups are ranked in the grouped summary.
 - `artifacts --latest-only` shows only the newest config group in the grouped summary while keeping overall counts intact.
@@ -94,8 +95,9 @@ Directory ingest notes:
 - `paper`, `research`, and `walkforward` artifacts all record run provenance: git commit, Node version, DB path, event window count, input mode/path, and source range.
 - `batch` chains `sync-calendars`, optional `ingest`, `paper`, `research`, and `artifacts`, then writes a JSON summary under `artifacts/batch/`.
 - `batch --input-dir <folder>` uses incremental directory ingest and records a daily intake summary: scanned files, new files, skipped files, failed files, inserted bars, and source range.
-- `daily` wraps `batch`, then reads the latest `batch`, `paper`, and `research` artifacts and prints a short fixed-format summary for automation use.
-- `daily` keeps the same success/failure behavior as `batch`: success exits `0`, failed batch steps still surface as a non-zero run after the summary is printed.
+- `daily` wraps `batch`, evaluates the latest `batch`, `paper`, and `research` artifacts, and writes `artifacts/daily/daily-run-*.json|md`.
+- `daily` now classifies each run as `OK`, `WARN`, or `FAIL` using stable warning codes such as `NO_NEW_FILES`, `NO_NEW_PAPER_TRADES`, `RESEARCH_GATE_FAILED`, `STALE_SOURCE_RANGE`, and `BATCH_FAILED`.
+- `daily` exits `0` for `OK` and `WARN`, and exits non-zero only for `FAIL`.
 - ingest file history is stored in SQLite `ingestion_files` so daily reruns remain idempotent.
 - `trades` are now tagged with a source so cumulative paper reports only use `PAPER` trades, not backtest inserts.
 - Walk-forward artifacts are written under `artifacts/` by default and are ignored by git.
@@ -111,4 +113,4 @@ CWD: C:\Users\한구원\Desktop\algo_future_trading
 Command: npm run daily -- --db "data/mnq-research.sqlite" --config "config/strategies/session-filtered-trend-pullback-v1.json" --artifacts-dir "artifacts" --input-dir "data/mnq_drop"
 ```
 
-The `daily` summary is the intended automation output. It includes batch status, failed step, ingestion counts, inserted bars, source range, paper new trades, research recommendation, research gate pass, and latest artifact paths.
+The `daily` summary is the intended automation output. It includes overall status, batch status, failed step, warning codes, ingestion counts, inserted bars, source range, paper new trades, research recommendation, research gate pass, and latest artifact paths.

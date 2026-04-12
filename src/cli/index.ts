@@ -18,7 +18,13 @@ import { describeStrategyConfig, loadStrategyConfig } from "../config/strategyLo
 import { ingestCsvDirectory, ingestCsvFile } from "../data/fileIngestion.js";
 import { PaperEngine } from "../paper/paperEngine.js";
 import { writeBatchArtifact } from "../reporting/batchArtifacts.js";
-import { buildDailyRunSummary, renderDailyRunSummary, resolveLatestDailyArtifacts } from "../reporting/dailyRun.js";
+import { writeDailyArtifact } from "../reporting/dailyArtifacts.js";
+import {
+  buildDailyRunArtifact,
+  buildDailyRunSummary,
+  renderDailyRunSummary,
+  resolveLatestDailyArtifacts
+} from "../reporting/dailyRun.js";
 import { writeArtifactIndex } from "../reporting/artifactIndex.js";
 import { writePaperArtifact } from "../reporting/paperArtifacts.js";
 import { writeResearchArtifact } from "../reporting/researchArtifacts.js";
@@ -527,11 +533,15 @@ async function artifactsCommand(
   }
   const rawKind = options.get("kind");
   const kind =
-    rawKind === "paper" || rawKind === "research" || rawKind === "walkforward" || rawKind === "batch"
+    rawKind === "paper" ||
+    rawKind === "research" ||
+    rawKind === "walkforward" ||
+    rawKind === "batch" ||
+    rawKind === "daily"
       ? (rawKind as ArtifactKind)
       : null;
   if (rawKind && !kind) {
-    throw new Error("artifacts --kind must be one of: paper, research, walkforward, batch");
+    throw new Error("artifacts --kind must be one of: paper, research, walkforward, batch, daily");
   }
   const result = await writeArtifactIndex(artifactsDir, configHash, kind, gatePassOnly, sortBy, latestOnly, limit);
   logger.log("Artifact index complete");
@@ -545,6 +555,7 @@ async function artifactsCommand(
   logger.log(`Research reports: ${result.index.counts.research}`);
   logger.log(`Walk-forward reports: ${result.index.counts.walkforward}`);
   logger.log(`Batch reports: ${result.index.counts.batch}`);
+  logger.log(`Daily reports: ${result.index.counts.daily}`);
   logger.log(`Config profiles shown: ${result.index.byConfigHash.length}`);
   logger.log(`Config profiles total: ${result.index.totalConfigProfiles}`);
   if (result.index.latest.paper) {
@@ -558,6 +569,9 @@ async function artifactsCommand(
   }
   if (result.index.latest.batch) {
     logger.log(`Latest batch: ${result.index.latest.batch.headline}`);
+  }
+  if (result.index.latest.daily) {
+    logger.log(`Latest daily: ${result.index.latest.daily.headline}`);
   }
   if (result.index.byConfigHash[0]) {
     logger.log(`Top config group: ${result.index.byConfigHash[0].summary} (${result.index.byConfigHash[0].sha256.slice(0, 12)})`);
@@ -721,9 +735,15 @@ async function dailyCommand(
 
   const latestArtifacts = await resolveLatestDailyArtifacts(artifactsDir);
   const summary = buildDailyRunSummary(latestArtifacts);
+  const dailyArtifact = buildDailyRunArtifact(summary, latestArtifacts);
+  const dailyArtifactPaths = await writeDailyArtifact(dailyArtifact, artifactsDir);
+  summary.artifactPaths.dailyJsonPath = dailyArtifactPaths.jsonPath;
+  summary.artifactPaths.dailyMarkdownPath = dailyArtifactPaths.markdownPath;
   for (const line of renderDailyRunSummary(summary)) {
     logger.log(line);
   }
+  logger.log(`Daily artifact JSON: ${dailyArtifactPaths.jsonPath}`);
+  logger.log(`Daily artifact Markdown: ${dailyArtifactPaths.markdownPath}`);
 
   const inputPath = options.get("input-dir") ?? options.get("dir");
   if (inputPath) {
@@ -743,8 +763,8 @@ async function dailyCommand(
     logger.log(`Automation command: ${automationSpec.command}`);
   }
 
-  if (batchError) {
-    throw batchError;
+  if (summary.overallStatus === "FAIL") {
+    throw batchError ?? new Error(`daily run failed with status ${summary.overallStatus}`);
   }
 
   return { summary };
@@ -784,7 +804,7 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
     default:
       logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper, batch, daily");
       logger.log('ingest options: (--file <csv> | --dir <folder>) [--db path] [--symbol MNQ] [--contract H26]');
-      logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward|batch] [--gate-pass-only] [--sort-by generated_at|net_pnl|expectancy] [--latest-only] [--limit N]');
+      logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward|batch|daily] [--gate-pass-only] [--sort-by generated_at|net_pnl|expectancy] [--latest-only] [--limit N]');
       logger.log('batch options: [--db path] [--config path] [--artifacts-dir path] [--file csv | --input-dir folder] [--contract H26] [--start iso] [--end iso]');
       logger.log('daily options: [--db path] [--config path] [--artifacts-dir path] --input-dir folder [--start iso] [--end iso]');
       logger.log(`strategy options: [--config ${DEFAULT_STRATEGY_CONFIG_PATH}]`);
