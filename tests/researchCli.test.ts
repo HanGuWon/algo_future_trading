@@ -10,6 +10,16 @@ const mockArtifact: ResearchReportArtifact = {
   generatedAtUtc: "2026-04-10T00:00:00.000Z",
   symbol: "MNQ",
   strategyId: "SessionFilteredTrendPullback_v1",
+  runProvenance: {
+    gitCommitSha: "abc123",
+    nodeVersion: "v22.0.0",
+    dbPath: "mock.sqlite",
+    eventWindowCount: 0,
+    sourceRange: {
+      startUtc: "2018-01-01T00:00:00.000Z",
+      endUtc: "2025-12-31T23:59:59.999Z"
+    }
+  },
   baseline: {
     train: {
       slice: "train",
@@ -62,11 +72,29 @@ const mockArtifact: ResearchReportArtifact = {
       }
     ]
   },
+  gateConfig: {
+    minTrades: 20,
+    minSelectedWalkforwardWindows: 2,
+    minExpectancyUsd: 0,
+    maxDrawdownUsd: 3750
+  },
+  gateResults: {
+    baselineTestTrades: { passed: true, actual: 25, threshold: 20 },
+    walkforwardTrades: { passed: true, actual: 24, threshold: 20 },
+    selectedWalkforwardWindows: { passed: true, actual: 2, threshold: 2 },
+    baselineTestExpectancy: { passed: true, actual: 10, threshold: 0 },
+    walkforwardExpectancy: { passed: true, actual: 10, threshold: 0 },
+    baselineTestMaxDrawdown: { passed: true, actual: 2, threshold: 3750 },
+    walkforwardMaxDrawdown: { passed: true, actual: 2, threshold: 3750 },
+    sensitivityTopCandidatesTrades: { passed: true, threshold: 20, passingCandidates: 5, totalCandidates: 5 }
+  },
   finalAssessment: {
     baseline_test_positive_expectancy: true,
     walkforward_oos_positive_expectancy: true,
     parameter_stability_pass: true,
     event_filter_dependence: "low",
+    gatePass: true,
+    gateFailureReasons: [],
     recommendation: "continue_paper"
   }
 };
@@ -199,10 +227,12 @@ describe("research CLI", () => {
       const parsed = JSON.parse(raw) as ResearchReportArtifact;
       expect(parsed.config?.path).toContain("config\\strategies\\session-filtered-trend-pullback-v1.json");
       expect(parsed.config?.sha256).toHaveLength(64);
+      expect(parsed.finalAssessment.gatePass).toBe(true);
       expect(parsed.finalAssessment.recommendation).toBe("continue_paper");
       const markdown = await readFile(join(artifactsDir, "research", markdownName!), "utf8");
       expect(markdown).toContain("# Research Report");
       expect(markdown).toContain("Config SHA256:");
+      expect(markdown).toContain("Gate pass: yes");
       expect(markdown).toContain("## Final Assessment");
     } finally {
       store.close();

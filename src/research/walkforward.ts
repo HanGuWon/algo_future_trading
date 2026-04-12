@@ -4,6 +4,7 @@ import { BacktestEngine } from "../backtest/engine.js";
 import { DEFAULT_ARTIFACTS_DIR, DEFAULT_STRATEGY_CONFIG, MNQ_SPEC } from "../config/defaults.js";
 import { buildFixedCandidate, buildSmallParameterGrid } from "./parameterGrid.js";
 import { combineMetrics, computeRunMetrics, mergeBacktestResults } from "../reporting/metrics.js";
+import { buildRunProvenance } from "../utils/runProvenance.js";
 import type {
   BacktestResult,
   Bar,
@@ -118,7 +119,9 @@ export class WalkForwardRunner {
     private readonly eventWindows: EventWindow[],
     private readonly options: WalkForwardRunOptions,
     private readonly candidatesOverride?: ParameterCandidate[],
-    private readonly baseConfig: StrategyConfig = DEFAULT_STRATEGY_CONFIG
+    private readonly baseConfig: StrategyConfig = DEFAULT_STRATEGY_CONFIG,
+    private readonly dbPath: string | null = null,
+    private readonly gitCommitSha?: string | null
   ) {}
 
   run(): WalkForwardArtifact {
@@ -138,6 +141,13 @@ export class WalkForwardRunner {
     return {
       generatedAtUtc: new Date().toISOString(),
       symbol: "MNQ",
+      runProvenance: buildRunProvenance({
+        dbPath: this.dbPath,
+        eventWindowCount: this.eventWindows.length,
+        bars: this.bars,
+        sourceRange,
+        gitCommitSha: this.gitCommitSha
+      }),
       mode: this.options.mode,
       sourceRange,
       windowSpec: {

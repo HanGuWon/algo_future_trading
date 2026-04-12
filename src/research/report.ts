@@ -2,6 +2,7 @@ import { BacktestEngine } from "../backtest/engine.js";
 import {
   ACCEPTANCE_SPLIT,
   DEFAULT_ACCOUNT_EQUITY_USD,
+  DEFAULT_RESEARCH_GATE_CONFIG,
   DEFAULT_STRATEGY_CONFIG,
   DEFAULT_WALKFORWARD_DAYS,
   MNQ_SPEC
@@ -9,7 +10,9 @@ import {
 import { computeRunMetrics } from "../reporting/metrics.js";
 import { buildCandidateId, buildSmallParameterGrid } from "./parameterGrid.js";
 import { WalkForwardRunner } from "./walkforward.js";
+import { assessFinalRecommendation, evaluateResearchGates } from "./gates.js";
 import { getTradingDateChicago } from "../utils/time.js";
+import { buildRunProvenance } from "../utils/runProvenance.js";
 import type {
   AcceptanceSliceResult,
   BacktestResult,
@@ -17,14 +20,16 @@ import type {
   DateRange,
   EventScenarioResult,
   EventWindow,
-  FinalResearchAssessment,
   ParameterCandidate,
   ResearchReportArtifact,
+  ResearchGateConfig,
   RunMetrics,
   SensitivityCandidateResult,
   StrategyConfig,
   WalkForwardRunOptions
 } from "../types.js";
+
+export { assessFinalRecommendation, evaluateResearchGates } from "./gates.js";
 
 interface AcceptanceSplitConfig {
   train: DateRange;
@@ -39,6 +44,9 @@ interface ResearchReportRunnerOptions {
   sensitivityCandidates?: ParameterCandidate[];
   walkforwardCandidates?: ParameterCandidate[];
   baseConfig?: StrategyConfig;
+  gateConfig?: ResearchGateConfig;
+  dbPath?: string | null;
+  gitCommitSha?: string | null;
 }
 
 function defaultAcceptanceSplit(): AcceptanceSplitConfig {
@@ -166,10 +174,6 @@ function baselineEventComparisonRange(split: AcceptanceSplitConfig): DateRange {
   };
 }
 
-function hasPositiveExpectancy(metrics: RunMetrics): boolean {
-  return metrics.tradeCount > 0 && metrics.expectancyUsd > 0;
-}
-
 function isStableSensitivityCandidate(result: SensitivityCandidateResult): boolean {
   return (
     result.validationMetrics.tradeCount > 0 &&
@@ -257,44 +261,6 @@ function computeNeighborDispersion(
   };
 }
 
-export function assessFinalRecommendation(
-  baselineTestMetrics: RunMetrics,
-  walkforwardMetrics: RunMetrics,
-  topCandidates: SensitivityCandidateResult[],
-  eventComparison: EventScenarioResult[]
-): FinalResearchAssessment {
-  const baselinePositive = hasPositiveExpectancy(baselineTestMetrics);
-  const walkforwardPositive = hasPositiveExpectancy(walkforwardMetrics);
-  const positiveTopCandidates = topCandidates.filter((candidate) => candidate.testMetrics.expectancyUsd > 0).length;
-  const parameterStabilityPass = topCandidates.length >= 3 && positiveTopCandidates > topCandidates.length / 2;
-
-  const defaultScenario = eventComparison.find((scenario) => scenario.scenario === "default");
-  const maxExpectancyDiff = Math.max(
-    0,
-    ...eventComparison
-      .filter((scenario) => scenario.scenario !== "default")
-      .map((scenario) => Math.abs(scenario.metrics.expectancyUsd - (defaultScenario?.metrics.expectancyUsd ?? 0)))
-  );
-
-  const eventFilterDependence =
-    maxExpectancyDiff > 15 ? "high" : maxExpectancyDiff > 5 ? "moderate" : "low";
-
-  let recommendation: FinalResearchAssessment["recommendation"] = "research_more";
-  if (!baselinePositive && !walkforwardPositive) {
-    recommendation = "reject_current_rule_set";
-  } else if (baselinePositive && walkforwardPositive && parameterStabilityPass && eventFilterDependence !== "high") {
-    recommendation = "continue_paper";
-  }
-
-  return {
-    baseline_test_positive_expectancy: baselinePositive,
-    walkforward_oos_positive_expectancy: walkforwardPositive,
-    parameter_stability_pass: parameterStabilityPass,
-    event_filter_dependence: eventFilterDependence,
-    recommendation
-  };
-}
-
 export class ResearchReportRunner {
   private readonly acceptanceSplit: AcceptanceSplitConfig;
   private readonly walkforwardOptions: WalkForwardRunOptions;
@@ -302,6 +268,9 @@ export class ResearchReportRunner {
   private readonly sensitivityCandidates: ParameterCandidate[] | undefined;
   private readonly walkforwardCandidates: ParameterCandidate[] | undefined;
   private readonly baseConfig: StrategyConfig;
+  private readonly gateConfig: ResearchGateConfig;
+  private readonly dbPath: string | null;
+  private readonly gitCommitSha: string | null | undefined;
 
   constructor(
     private readonly bars: Bar[],
@@ -322,6 +291,9 @@ export class ResearchReportRunner {
     this.sensitivityTopCount = options.sensitivityTopCount ?? 5;
     this.sensitivityCandidates = options.sensitivityCandidates;
     this.walkforwardCandidates = options.walkforwardCandidates;
+    this.gateConfig = options.gateConfig ?? DEFAULT_RESEARCH_GATE_CONFIG;
+    this.dbPath = options.dbPath ?? null;
+    this.gitCommitSha = options.gitCommitSha;
   }
 
   run(): ResearchReportArtifact {
@@ -447,17 +419,33 @@ export class ResearchReportRunner {
       };
     });
 
+    const gateEvaluation = evaluateResearchGates({
+      gateConfig: this.gateConfig,
+      baselineTestMetrics: baselineTest.metrics,
+      walkforwardMetrics: walkforwardSummary.rolledUpMetrics,
+      selectedWalkforwardWindows: walkforwardSummary.selectedWindowCount,
+      topCandidates: sensitivitySummary.topCandidates
+    });
+
     const finalAssessment = assessFinalRecommendation(
       baselineTest.metrics,
       walkforwardSummary.rolledUpMetrics,
       sensitivitySummary.topCandidates,
-      eventScenarios
+      eventScenarios,
+      gateEvaluation.gatePass,
+      gateEvaluation.gateFailureReasons
     );
 
     return {
       generatedAtUtc: new Date().toISOString(),
       symbol: MNQ_SPEC.symbol,
       strategyId: this.baseConfig.strategyId,
+      runProvenance: buildRunProvenance({
+        dbPath: this.dbPath,
+        eventWindowCount: this.eventWindows.length,
+        bars: this.bars,
+        gitCommitSha: this.gitCommitSha
+      }),
       baseline: {
         train: baselineTrain,
         validation: baselineValidation,
@@ -470,6 +458,8 @@ export class ResearchReportRunner {
         baselineScenario: "default",
         scenarios: eventScenarios
       },
+      gateConfig: this.gateConfig,
+      gateResults: gateEvaluation.gateResults,
       finalAssessment
     };
   }

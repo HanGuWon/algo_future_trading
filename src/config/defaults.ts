@@ -1,4 +1,4 @@
-import type { InstrumentSpec, StrategyConfig } from "../types.js";
+import type { InstrumentSpec, ResearchGateConfig, StrategyConfig } from "../types.js";
 
 export const MNQ_SPEC: InstrumentSpec = {
   symbol: "MNQ",
@@ -34,6 +34,12 @@ export const DEFAULT_STRATEGY_CONFIG: StrategyConfig = {
 };
 
 export const DEFAULT_ACCOUNT_EQUITY_USD = 25_000;
+export const DEFAULT_RESEARCH_GATE_CONFIG: ResearchGateConfig = {
+  minTrades: 20,
+  minSelectedWalkforwardWindows: 2,
+  minExpectancyUsd: 0,
+  maxDrawdownUsd: DEFAULT_ACCOUNT_EQUITY_USD * 0.15
+};
 export const DEFAULT_DB_PATH = "data/mnq-research.sqlite";
 export const CALENDAR_SEED_PATH = "data/calendars/official-events.json";
 export const DEFAULT_ARTIFACTS_DIR = "artifacts";

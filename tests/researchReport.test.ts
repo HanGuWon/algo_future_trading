@@ -4,6 +4,7 @@ import {
   assessFinalRecommendation,
   buildAcceptanceSlices,
   buildEventScenarioWindows,
+  evaluateResearchGates,
   ResearchReportRunner
 } from "../src/research/report.js";
 import type { DateRange, EventWindow, RunMetrics } from "../src/types.js";
@@ -171,11 +172,72 @@ describe("research report utilities", () => {
           metrics: buildMetrics({ expectancyUsd: 2 }),
           deltaFromBaseline: { tradeCount: -1, netPnlUsd: -5, expectancyUsd: -1, maxDrawdownUsd: 1 }
         }
-      ]
+      ],
+      true,
+      []
     );
 
     expect(recommendation.recommendation).toBe("continue_paper");
     expect(recommendation.parameter_stability_pass).toBe(true);
+    expect(recommendation.gatePass).toBe(true);
+  });
+
+  it("evaluates research gates deterministically", () => {
+    const evaluation = evaluateResearchGates({
+      gateConfig: {
+        minTrades: 5,
+        minSelectedWalkforwardWindows: 2,
+        minExpectancyUsd: 0,
+        maxDrawdownUsd: 50
+      },
+      baselineTestMetrics: buildMetrics({ tradeCount: 6, expectancyUsd: 2, maxDrawdownUsd: 10 }),
+      walkforwardMetrics: buildMetrics({ tradeCount: 5, expectancyUsd: 1, maxDrawdownUsd: 12 }),
+      selectedWalkforwardWindows: 2,
+      topCandidates: [
+        {
+          candidate: buildSmallParameterGrid()[0]!,
+          validationMetrics: buildMetrics({ tradeCount: 5 }),
+          testMetrics: buildMetrics({ tradeCount: 5 }),
+          isStable: true,
+          rank: 1,
+          baselineDelta: {
+            validationNetPnlUsd: 0,
+            testNetPnlUsd: 0,
+            validationExpectancyUsd: 0,
+            testExpectancyUsd: 0
+          },
+          neighborDispersion: {
+            validationNetPnlRangeUsd: 0,
+            testNetPnlRangeUsd: 0,
+            validationExpectancyRangeUsd: 0,
+            testExpectancyRangeUsd: 0
+          }
+        }
+      ]
+    });
+
+    expect(evaluation.gatePass).toBe(true);
+    expect(evaluation.gateFailureReasons).toHaveLength(0);
+    expect(evaluation.gateResults.selectedWalkforwardWindows.passed).toBe(true);
+  });
+
+  it("fails research gates on insufficient sample size", () => {
+    const evaluation = evaluateResearchGates({
+      gateConfig: {
+        minTrades: 5,
+        minSelectedWalkforwardWindows: 2,
+        minExpectancyUsd: 0,
+        maxDrawdownUsd: 50
+      },
+      baselineTestMetrics: buildMetrics({ tradeCount: 1, expectancyUsd: 2, maxDrawdownUsd: 10 }),
+      walkforwardMetrics: buildMetrics({ tradeCount: 1, expectancyUsd: -1, maxDrawdownUsd: 60 }),
+      selectedWalkforwardWindows: 1,
+      topCandidates: []
+    });
+
+    expect(evaluation.gatePass).toBe(false);
+    expect(evaluation.gateFailureReasons.length).toBeGreaterThan(0);
+    expect(evaluation.gateResults.walkforwardExpectancy.passed).toBe(false);
   });
 });
 
@@ -198,6 +260,12 @@ describe("research report runner", () => {
         testDays: 3,
         stepDays: 4
       },
+      gateConfig: {
+        minTrades: 0,
+        minSelectedWalkforwardWindows: 1,
+        minExpectancyUsd: 0,
+        maxDrawdownUsd: 1_000
+      },
       sensitivityTopCount: 3,
       sensitivityCandidates: candidates,
       walkforwardCandidates: [candidates[0]!]
@@ -208,6 +276,7 @@ describe("research report runner", () => {
     expect(artifact.walkforward.windowCount).toBeGreaterThan(0);
     expect(artifact.sensitivity.topCandidates.length).toBe(3);
     expect(artifact.eventComparison.scenarios).toHaveLength(3);
+    expect(artifact.finalAssessment.gatePass).toBe(true);
     expect(["continue_paper", "research_more", "reject_current_rule_set"]).toContain(
       artifact.finalAssessment.recommendation
     );
@@ -231,12 +300,19 @@ describe("research report runner", () => {
         testDays: 3,
         stepDays: 4
       },
+      gateConfig: {
+        minTrades: 5,
+        minSelectedWalkforwardWindows: 2,
+        minExpectancyUsd: 0,
+        maxDrawdownUsd: 50
+      },
       sensitivityTopCount: 3,
       sensitivityCandidates: candidates,
       walkforwardCandidates: [candidates[0]!]
     });
 
     const artifact = runner.run();
+    expect(artifact.finalAssessment.gatePass).toBe(false);
     expect(["research_more", "reject_current_rule_set"]).toContain(artifact.finalAssessment.recommendation);
   }, 30000);
 });

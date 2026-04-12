@@ -51,6 +51,11 @@ export function renderResearchArtifactMarkdown(artifact: ResearchReportArtifact)
     `- Strategy: ${artifact.strategyId}`,
     `- Config: ${artifact.config?.path ?? "n/a"}`,
     `- Config SHA256: ${artifact.config?.sha256 ?? "n/a"}`,
+    `- Git commit: ${artifact.runProvenance.gitCommitSha ?? "n/a"}`,
+    `- Node: ${artifact.runProvenance.nodeVersion}`,
+    `- DB path: ${artifact.runProvenance.dbPath ?? "n/a"}`,
+    `- Event windows used: ${artifact.runProvenance.eventWindowCount}`,
+    `- Source range: ${artifact.runProvenance.sourceRange ? `${artifact.runProvenance.sourceRange.startUtc} -> ${artifact.runProvenance.sourceRange.endUtc}` : "n/a"}`,
     `- Recommendation: ${artifact.finalAssessment.recommendation}`,
     ``,
     `## Baseline Acceptance`,
@@ -80,10 +85,19 @@ export function renderResearchArtifactMarkdown(artifact: ResearchReportArtifact)
     ``,
     `## Final Assessment`,
     ``,
+    `- Gate pass: ${artifact.finalAssessment.gatePass ? "yes" : "no"}`,
     `- Baseline test positive expectancy: ${artifact.finalAssessment.baseline_test_positive_expectancy ? "yes" : "no"}`,
     `- Walk-forward OOS positive expectancy: ${artifact.finalAssessment.walkforward_oos_positive_expectancy ? "yes" : "no"}`,
     `- Parameter stability pass: ${artifact.finalAssessment.parameter_stability_pass ? "yes" : "no"}`,
-    `- Event filter dependence: ${artifact.finalAssessment.event_filter_dependence}`
+    `- Event filter dependence: ${artifact.finalAssessment.event_filter_dependence}`,
+    `- Gate failures: ${artifact.finalAssessment.gateFailureReasons.length > 0 ? artifact.finalAssessment.gateFailureReasons.join(", ") : "none"}`,
+    ``,
+    `## Gate Config`,
+    ``,
+    `- Min trades: ${artifact.gateConfig.minTrades}`,
+    `- Min selected walk-forward windows: ${artifact.gateConfig.minSelectedWalkforwardWindows}`,
+    `- Min expectancy: ${formatNumber(artifact.gateConfig.minExpectancyUsd)} USD`,
+    `- Max drawdown: ${formatNumber(artifact.gateConfig.maxDrawdownUsd)} USD`
   ].join("\n");
 }
 

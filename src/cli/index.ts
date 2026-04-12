@@ -16,6 +16,7 @@ import {
 import { describeStrategyConfig, loadStrategyConfig } from "../config/strategyLoader.js";
 import { aggregateBars, parseCsvBarsDetailed } from "../data/barAggregation.js";
 import { PaperEngine } from "../paper/paperEngine.js";
+import { writeBatchArtifact } from "../reporting/batchArtifacts.js";
 import { writeArtifactIndex } from "../reporting/artifactIndex.js";
 import { writePaperArtifact } from "../reporting/paperArtifacts.js";
 import { writeResearchArtifact } from "../reporting/researchArtifacts.js";
@@ -30,7 +31,17 @@ import {
 import { ResearchReportRunner } from "../research/report.js";
 import { WalkForwardRunner } from "../research/walkforward.js";
 import { SqliteStore } from "../storage/sqliteStore.js";
+import { buildRunProvenance } from "../utils/runProvenance.js";
 import type { ArtifactKind, ArtifactSortBy } from "../reporting/artifactIndex.js";
+import type {
+  BatchRunArtifact,
+  BatchStepResult,
+  DateRange,
+  PaperReportArtifact,
+  ResearchReportArtifact,
+  RunProvenance,
+  WalkForwardArtifact
+} from "../types.js";
 
 export function parseArgs(argv: string[]): Map<string, string> {
   const options = new Map<string, string>();
@@ -70,7 +81,51 @@ async function loadCliStrategyContext(
   };
 }
 
-async function ingestCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
+interface IngestCommandResult {
+  rowCount: number;
+  range: DateRange;
+  contracts: string[];
+  warnings: string[];
+  dbPath: string;
+}
+
+interface SyncCalendarsCommandResult {
+  outputPath: string;
+  windowsCount: number;
+}
+
+interface PaperCommandResult {
+  artifact: PaperReportArtifact;
+  artifactPaths: { jsonPath: string; markdownPath: string };
+}
+
+interface WalkForwardCommandResult {
+  artifact: WalkForwardArtifact;
+  artifactPaths: { jsonPath: string; markdownPath: string };
+}
+
+interface ResearchCommandResult {
+  artifact: ResearchReportArtifact;
+  artifactPaths: { jsonPath: string; markdownPath: string };
+}
+
+interface ArtifactsCommandResult {
+  jsonPath: string;
+  markdownPath: string;
+  index: Awaited<ReturnType<typeof writeArtifactIndex>>["index"];
+}
+
+function rangeFromOptionalBounds(startUtc?: string | null, endUtc?: string | null): DateRange | null {
+  if (!startUtc || !endUtc) {
+    return null;
+  }
+  return { startUtc, endUtc };
+}
+
+async function ingestCommand(
+  options: Map<string, string>,
+  logger: Pick<Console, "log"> = console
+): Promise<IngestCommandResult> {
   const file = options.get("file");
   if (!file) {
     throw new Error("ingest requires --file <csv>");
@@ -99,9 +154,22 @@ async function ingestCommand(options: Map<string, string>, logger: Pick<Console,
   for (const warning of parsed.warnings) {
     logger.log(`Warning: ${warning}`);
   }
+  return {
+    rowCount: bars1m.length,
+    range: {
+      startUtc: parsed.summary.firstTsUtc,
+      endUtc: parsed.summary.lastTsUtc
+    },
+    contracts: parsed.summary.contracts,
+    warnings: parsed.warnings,
+    dbPath
+  };
 }
 
-async function syncCalendarsCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
+async function syncCalendarsCommand(
+  options: Map<string, string>,
+  logger: Pick<Console, "log"> = console
+): Promise<SyncCalendarsCommandResult> {
   const outputPath = options.get("out") ?? CALENDAR_SEED_PATH;
   const strategy = await loadCliStrategyContext(options);
   await mkdir(dirname(outputPath), { recursive: true });
@@ -118,6 +186,10 @@ async function syncCalendarsCommand(options: Map<string, string>, logger: Pick<C
   logger.log(`Config: ${strategy.configPath}`);
   logger.log(`Strategy params: ${describeStrategyConfig(strategy.config)}`);
   logger.log(`Synced ${windows.length} official event windows to ${outputPath}`);
+  return {
+    outputPath,
+    windowsCount: windows.length
+  };
 }
 
 async function backtestCommand(
@@ -154,7 +226,10 @@ async function backtestCommand(
   }
 }
 
-async function paperCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
+async function paperCommand(
+  options: Map<string, string>,
+  logger: Pick<Console, "log"> = console
+): Promise<PaperCommandResult> {
   const dbPath = options.get("db") ?? DEFAULT_DB_PATH;
   const strategy = await loadCliStrategyContext(options);
   const store = new SqliteStore(dbPath);
@@ -194,27 +269,33 @@ async function paperCommand(options: Map<string, string>, logger: Pick<Console, 
     const dailyPerformance = buildDailyPerformanceRows(cumulativeTrades);
     const sessionPerformance = buildSessionPerformanceRows(cumulativeTrades);
     const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
-    const artifactPaths = await writePaperArtifact(
-      {
-        generatedAtUtc: new Date().toISOString(),
-        symbol: MNQ_SPEC.symbol,
-        strategyId: strategy.config.strategyId,
-        config: strategy.reference,
-        source: "PAPER",
-        run: {
-          startUtc: priorState?.processedThroughUtc ?? result.finalState.paperStartUtc,
-          endUtc: end ?? null,
-          processedThroughUtc: result.finalState.processedThroughUtc,
-          newTradeCount: result.trades.length,
-          rejectedSignalCount: result.rejectedSignals.length,
-          artifactVersion: "0.1.0"
-        },
-        activePosition: result.finalState.activePosition,
-        runMetrics,
-        cumulativeMetrics,
-        dailyPerformance,
-        sessionPerformance
+    const artifact: PaperReportArtifact = {
+      generatedAtUtc: new Date().toISOString(),
+      symbol: MNQ_SPEC.symbol,
+      strategyId: strategy.config.strategyId,
+      config: strategy.reference,
+      runProvenance: buildRunProvenance({
+        dbPath,
+        eventWindowCount: eventWindows.length,
+        bars: bars1m
+      }),
+      source: "PAPER",
+      run: {
+        startUtc: priorState?.processedThroughUtc ?? result.finalState.paperStartUtc,
+        endUtc: end ?? null,
+        processedThroughUtc: result.finalState.processedThroughUtc,
+        newTradeCount: result.trades.length,
+        rejectedSignalCount: result.rejectedSignals.length,
+        artifactVersion: "0.1.0"
       },
+      activePosition: result.finalState.activePosition,
+      runMetrics,
+      cumulativeMetrics,
+      dailyPerformance,
+      sessionPerformance
+    };
+    const artifactPaths = await writePaperArtifact(
+      artifact,
       artifactsDir
     );
 
@@ -240,12 +321,19 @@ async function paperCommand(options: Map<string, string>, logger: Pick<Console, 
     }
     logger.log(`Artifact JSON: ${artifactPaths.jsonPath}`);
     logger.log(`Artifact Markdown: ${artifactPaths.markdownPath}`);
+    return {
+      artifact,
+      artifactPaths
+    };
   } finally {
     store.close();
   }
 }
 
-async function walkforwardCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
+async function walkforwardCommand(
+  options: Map<string, string>,
+  logger: Pick<Console, "log"> = console
+): Promise<WalkForwardCommandResult> {
   const dbPath = options.get("db") ?? DEFAULT_DB_PATH;
   const strategy = await loadCliStrategyContext(options);
   const store = new SqliteStore(dbPath);
@@ -271,7 +359,8 @@ async function walkforwardCommand(options: Map<string, string>, logger: Pick<Con
         stepDays: getNumberOption(options, "step-days", DEFAULT_WALKFORWARD_DAYS.stepDays)
       },
       undefined,
-      strategy.config
+      strategy.config,
+      dbPath
     );
     const artifact = runner.run();
     artifact.config = strategy.reference;
@@ -288,12 +377,19 @@ async function walkforwardCommand(options: Map<string, string>, logger: Pick<Con
     }
     logger.log(`Artifact JSON: ${artifactPaths.jsonPath}`);
     logger.log(`Artifact Markdown: ${artifactPaths.markdownPath}`);
+    return {
+      artifact,
+      artifactPaths
+    };
   } finally {
     store.close();
   }
 }
 
-async function researchCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
+async function researchCommand(
+  options: Map<string, string>,
+  logger: Pick<Console, "log"> = console
+): Promise<ResearchCommandResult> {
   const dbPath = options.get("db") ?? DEFAULT_DB_PATH;
   const strategy = await loadCliStrategyContext(options);
   const store = new SqliteStore(dbPath);
@@ -304,7 +400,8 @@ async function researchCommand(options: Map<string, string>, logger: Pick<Consol
     }
     const eventWindows = store.getEventWindows(ACCEPTANCE_SPLIT.trainStart, ACCEPTANCE_SPLIT.testEnd);
     const runner = new ResearchReportRunner(bars1m, eventWindows, {
-      baseConfig: strategy.config
+      baseConfig: strategy.config,
+      dbPath
     });
     const artifact = runner.run();
     artifact.config = strategy.reference;
@@ -328,14 +425,22 @@ async function researchCommand(options: Map<string, string>, logger: Pick<Consol
     logger.log(`Recommendation: ${artifact.finalAssessment.recommendation}`);
     logger.log(`Artifact JSON: ${artifactPaths.jsonPath}`);
     logger.log(`Artifact Markdown: ${artifactPaths.markdownPath}`);
+    return {
+      artifact,
+      artifactPaths
+    };
   } finally {
     store.close();
   }
 }
 
-async function artifactsCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
+async function artifactsCommand(
+  options: Map<string, string>,
+  logger: Pick<Console, "log"> = console
+): Promise<ArtifactsCommandResult> {
   const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
   const configHash = options.get("config-hash") ?? null;
+  const gatePassOnly = options.get("gate-pass-only") === "true";
   const rawSortBy = options.get("sort-by");
   let sortBy: ArtifactSortBy = "generated_at";
   if (rawSortBy !== undefined) {
@@ -362,10 +467,11 @@ async function artifactsCommand(options: Map<string, string>, logger: Pick<Conso
   if (rawKind && !kind) {
     throw new Error("artifacts --kind must be one of: paper, research, walkforward");
   }
-  const result = await writeArtifactIndex(artifactsDir, configHash, kind, sortBy, latestOnly, limit);
+  const result = await writeArtifactIndex(artifactsDir, configHash, kind, gatePassOnly, sortBy, latestOnly, limit);
   logger.log("Artifact index complete");
   logger.log(`Config hash filter: ${configHash ?? "none"}`);
   logger.log(`Kind filter: ${kind ?? "none"}`);
+  logger.log(`Gate pass only: ${gatePassOnly ? "yes" : "no"}`);
   logger.log(`Sort by: ${sortBy}`);
   logger.log(`Latest only: ${latestOnly ? "yes" : "no"}`);
   logger.log(`Limit: ${limit ?? "none"}`);
@@ -388,6 +494,139 @@ async function artifactsCommand(options: Map<string, string>, logger: Pick<Conso
   }
   logger.log(`Index JSON: ${result.jsonPath}`);
   logger.log(`Index Markdown: ${result.markdownPath}`);
+  return result;
+}
+
+async function batchCommand(options: Map<string, string>, logger: Pick<Console, "log"> = console): Promise<void> {
+  const dbPath = options.get("db") ?? DEFAULT_DB_PATH;
+  const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
+  const strategy = await loadCliStrategyContext(options);
+  const steps: BatchStepResult[] = [];
+  const batchStartedAtUtc = new Date().toISOString();
+  let failedStep: BatchStepResult["step"] | null = null;
+  let finalStatus: BatchRunArtifact["status"] = "completed";
+  let batchProvenance: RunProvenance = buildRunProvenance({
+    dbPath,
+    eventWindowCount: 0,
+    sourceRange: rangeFromOptionalBounds(options.get("start"), options.get("end"))
+  });
+
+  async function runBatchStep(
+    step: BatchStepResult["step"],
+    executor: () => Promise<{ artifactPaths?: string[]; provenance?: RunProvenance; message?: string }>
+  ): Promise<void> {
+    const startedAtUtc = new Date().toISOString();
+    try {
+      const result = await executor();
+      steps.push({
+        step,
+        status: "completed",
+        startedAtUtc,
+        completedAtUtc: new Date().toISOString(),
+        message: result.message ?? "completed",
+        artifactPaths: result.artifactPaths
+      });
+      if (result.provenance) {
+        batchProvenance = result.provenance;
+      }
+    } catch (error) {
+      failedStep = step;
+      finalStatus = "failed";
+      steps.push({
+        step,
+        status: "failed",
+        startedAtUtc,
+        completedAtUtc: new Date().toISOString(),
+        message: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+  }
+
+  try {
+    await runBatchStep("sync-calendars", async () => {
+      const result = await syncCalendarsCommand(options, logger);
+      return {
+        message: `synced ${result.windowsCount} windows`,
+        provenance: buildRunProvenance({
+          dbPath,
+          eventWindowCount: result.windowsCount,
+          sourceRange: rangeFromOptionalBounds(options.get("start"), options.get("end"))
+        })
+      };
+    });
+
+    if (options.get("file")) {
+      await runBatchStep("ingest", async () => {
+        const result = await ingestCommand(options, logger);
+        return {
+          message: `ingested ${result.rowCount} bars`,
+          provenance: buildRunProvenance({
+            dbPath,
+            eventWindowCount: batchProvenance.eventWindowCount,
+            sourceRange: result.range
+          })
+        };
+      });
+    } else {
+      steps.push({
+        step: "ingest",
+        status: "skipped",
+        startedAtUtc: new Date().toISOString(),
+        completedAtUtc: new Date().toISOString(),
+        message: "no --file provided"
+      });
+    }
+
+    await runBatchStep("paper", async () => {
+      const result = await paperCommand(options, logger);
+      return {
+        artifactPaths: [result.artifactPaths.jsonPath, result.artifactPaths.markdownPath],
+        provenance: result.artifact.runProvenance,
+        message: `paper trades ${result.artifact.run.newTradeCount}`
+      };
+    });
+
+    await runBatchStep("research", async () => {
+      const result = await researchCommand(options, logger);
+      return {
+        artifactPaths: [result.artifactPaths.jsonPath, result.artifactPaths.markdownPath],
+        provenance: result.artifact.runProvenance,
+        message: `recommendation ${result.artifact.finalAssessment.recommendation}`
+      };
+    });
+
+    await runBatchStep("artifacts", async () => {
+      const result = await artifactsCommand(options, logger);
+      return {
+        artifactPaths: [result.jsonPath, result.markdownPath],
+        provenance: batchProvenance,
+        message: `config profiles ${result.index.totalConfigProfiles}`
+      };
+    });
+  } catch {
+    // Preserve failure state and write the batch artifact below.
+  }
+
+  const batchArtifact: BatchRunArtifact = {
+    generatedAtUtc: batchStartedAtUtc,
+    completedAtUtc: new Date().toISOString(),
+    status: finalStatus,
+    failedStep,
+    strategyId: strategy.config.strategyId,
+    config: strategy.reference,
+    runProvenance: batchProvenance,
+    steps
+  };
+  const batchArtifactPath = await writeBatchArtifact(batchArtifact, artifactsDir);
+
+  logger.log(`Batch status: ${batchArtifact.status}`);
+  logger.log(`Batch failed step: ${batchArtifact.failedStep ?? "none"}`);
+  logger.log(`Batch artifact JSON: ${batchArtifactPath.jsonPath}`);
+
+  if (failedStep !== null) {
+    throw new Error(`batch failed at step ${failedStep}`);
+  }
 }
 
 export async function runCli(argv: string[], logger: Pick<Console, "log"> = console): Promise<void> {
@@ -415,10 +654,14 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
     case "paper":
       await paperCommand(options, logger);
       return;
+    case "batch":
+      await batchCommand(options, logger);
+      return;
     default:
-      logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper");
+      logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper, batch");
       logger.log('ingest options: --file <csv> [--db path] [--symbol MNQ] [--contract H26]');
-      logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward] [--sort-by generated_at|net_pnl|expectancy] [--latest-only] [--limit N]');
+      logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward] [--gate-pass-only] [--sort-by generated_at|net_pnl|expectancy] [--latest-only] [--limit N]');
+      logger.log('batch options: [--db path] [--config path] [--artifacts-dir path] [--file csv] [--contract H26] [--start iso] [--end iso]');
       logger.log(`strategy options: [--config ${DEFAULT_STRATEGY_CONFIG_PATH}]`);
   }
 }

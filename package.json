@@ -13,7 +13,8 @@
     "walkforward": "tsx src/cli/index.ts walkforward",
     "artifacts": "tsx src/cli/index.ts artifacts",
     "research": "tsx src/cli/index.ts research",
-    "paper": "tsx src/cli/index.ts paper"
+    "paper": "tsx src/cli/index.ts paper",
+    "batch": "tsx src/cli/index.ts batch"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",

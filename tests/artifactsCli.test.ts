@@ -630,6 +630,117 @@ describe("artifacts CLI", () => {
     expect(filteredMarkdown).toContain("Config profiles total: 1");
   });
 
+  it("filters config groups to gate-passing research profiles only", async () => {
+    const { runCli } = await import("../src/cli/index.js");
+    const artifactsDir = await mkdtemp(join(tmpdir(), "artifact-index-gate-"));
+    tempDirs.push(artifactsDir);
+    await mkdir(join(artifactsDir, "research"), { recursive: true });
+
+    for (const [sha, summary, gatePass] of [
+      ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "passing-profile", true],
+      ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "failing-profile", false]
+    ] as const) {
+      await writeFile(
+        join(artifactsDir, "research", `research-report-${summary}.json`),
+        JSON.stringify({
+          generatedAtUtc: "2026-04-12T03:00:00.000Z",
+          symbol: "MNQ",
+          strategyId: "SessionFilteredTrendPullback_v1",
+          config: {
+            path: `config/strategies/${summary}.json`,
+            sha256: sha,
+            summary
+          },
+          runProvenance: {
+            gitCommitSha: "abc123",
+            nodeVersion: "v22.0.0",
+            dbPath: "data/test.sqlite",
+            eventWindowCount: 0,
+            sourceRange: null
+          },
+          baseline: {
+            train: { slice: "train", range: { startUtc: "2018-01-01T00:00:00.000Z", endUtc: "2021-12-31T23:59:59.999Z" }, metrics: { tradeCount: 0, winRate: 0, netPnlUsd: 0, expectancyUsd: 0, profitFactor: null, maxDrawdownUsd: 0, avgWinUsd: 0, avgLossUsd: 0, rejectedSignalCount: 0, sessionBreakdown: { ASIA: { tradeCount: 0, netPnlUsd: 0 }, EUROPE: { tradeCount: 0, netPnlUsd: 0 }, US: { tradeCount: 0, netPnlUsd: 0 }, CLOSED: { tradeCount: 0, netPnlUsd: 0 } }, sideBreakdown: { BUY: { tradeCount: 0, netPnlUsd: 0 }, SELL: { tradeCount: 0, netPnlUsd: 0 } } } },
+            validation: { slice: "validation", range: { startUtc: "2022-01-01T00:00:00.000Z", endUtc: "2022-12-31T23:59:59.999Z" }, metrics: { tradeCount: 0, winRate: 0, netPnlUsd: 0, expectancyUsd: 0, profitFactor: null, maxDrawdownUsd: 0, avgWinUsd: 0, avgLossUsd: 0, rejectedSignalCount: 0, sessionBreakdown: { ASIA: { tradeCount: 0, netPnlUsd: 0 }, EUROPE: { tradeCount: 0, netPnlUsd: 0 }, US: { tradeCount: 0, netPnlUsd: 0 }, CLOSED: { tradeCount: 0, netPnlUsd: 0 } }, sideBreakdown: { BUY: { tradeCount: 0, netPnlUsd: 0 }, SELL: { tradeCount: 0, netPnlUsd: 0 } } } },
+            test: { slice: "test", range: { startUtc: "2023-01-01T00:00:00.000Z", endUtc: "2025-12-31T23:59:59.999Z" }, metrics: { tradeCount: 25, winRate: 100, netPnlUsd: 250, expectancyUsd: 10, profitFactor: 1.5, maxDrawdownUsd: 2, avgWinUsd: 10, avgLossUsd: 0, rejectedSignalCount: 0, sessionBreakdown: { ASIA: { tradeCount: 0, netPnlUsd: 0 }, EUROPE: { tradeCount: 25, netPnlUsd: 250 }, US: { tradeCount: 0, netPnlUsd: 0 }, CLOSED: { tradeCount: 0, netPnlUsd: 0 } }, sideBreakdown: { BUY: { tradeCount: 25, netPnlUsd: 250 }, SELL: { tradeCount: 0, netPnlUsd: 0 } } } }
+          },
+          walkforward: {
+            mode: "grid",
+            windowCount: 2,
+            selectedWindowCount: 2,
+            rolledUpMetrics: {
+              tradeCount: 25,
+              winRate: 100,
+              netPnlUsd: 250,
+              expectancyUsd: gatePass ? 10 : -10,
+              profitFactor: 1.5,
+              maxDrawdownUsd: 2,
+              avgWinUsd: 10,
+              avgLossUsd: 0,
+              rejectedSignalCount: 0,
+              sessionBreakdown: { ASIA: { tradeCount: 0, netPnlUsd: 0 }, EUROPE: { tradeCount: 25, netPnlUsd: 250 }, US: { tradeCount: 0, netPnlUsd: 0 }, CLOSED: { tradeCount: 0, netPnlUsd: 0 } },
+              sideBreakdown: { BUY: { tradeCount: 25, netPnlUsd: 250 }, SELL: { tradeCount: 0, netPnlUsd: 0 } }
+            },
+            windows: []
+          },
+          sensitivity: {
+            baselineCandidateId: "baseline",
+            baselineRank: 1,
+            totalCandidates: 1,
+            stableCandidateCount: 1,
+            topCandidates: []
+          },
+          eventComparison: {
+            range: { startUtc: "2022-01-01T00:00:00.000Z", endUtc: "2025-12-31T23:59:59.999Z" },
+            baselineScenario: "default",
+            scenarios: []
+          },
+          gateConfig: {
+            minTrades: 20,
+            minSelectedWalkforwardWindows: 2,
+            minExpectancyUsd: 0,
+            maxDrawdownUsd: 3750
+          },
+          gateResults: {
+            baselineTestTrades: { passed: true, actual: 25, threshold: 20 },
+            walkforwardTrades: { passed: gatePass, actual: 25, threshold: 20 },
+            selectedWalkforwardWindows: { passed: true, actual: 2, threshold: 2 },
+            baselineTestExpectancy: { passed: true, actual: 10, threshold: 0 },
+            walkforwardExpectancy: { passed: gatePass, actual: gatePass ? 10 : -10, threshold: 0 },
+            baselineTestMaxDrawdown: { passed: true, actual: 2, threshold: 3750 },
+            walkforwardMaxDrawdown: { passed: true, actual: 2, threshold: 3750 },
+            sensitivityTopCandidatesTrades: { passed: true, threshold: 20, passingCandidates: 1, totalCandidates: 1 }
+          },
+          finalAssessment: {
+            baseline_test_positive_expectancy: true,
+            walkforward_oos_positive_expectancy: gatePass,
+            parameter_stability_pass: true,
+            event_filter_dependence: "low",
+            gatePass,
+            gateFailureReasons: gatePass ? [] : ["walkforward_expectancy_below_min:-10<0"],
+            recommendation: gatePass ? "continue_paper" : "research_more"
+          }
+        }),
+        "utf8"
+      );
+    }
+
+    const output: string[] = [];
+    await runCli(["artifacts", "--artifacts-dir", artifactsDir, "--gate-pass-only"], {
+      log: (message: string) => {
+        output.push(message);
+      }
+    });
+
+    expect(output.some((line) => line.includes("Gate pass only: yes"))).toBe(true);
+    expect(output.some((line) => line.includes("Research reports: 1"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles total: 1"))).toBe(true);
+    expect((await readdir(artifactsDir)).includes("index-gate-pass.json")).toBe(true);
+    const markdown = await readFile(join(artifactsDir, "index-gate-pass.md"), "utf8");
+    expect(markdown).toContain("Gate pass only: yes");
+    expect(markdown).toContain("passing-profile");
+    expect(markdown).not.toContain("failing-profile");
+  });
+
   it("limits config groups in the artifact index", async () => {
     const { runCli } = await import("../src/cli/index.js");
     const artifactsDir = await mkdtemp(join(tmpdir(), "artifact-index-limit-"));

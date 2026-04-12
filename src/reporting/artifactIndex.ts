@@ -22,6 +22,7 @@ interface ArtifactLatestSummary {
   config: StrategyConfigReference | null;
   netPnlUsd: number | null;
   expectancyUsd: number | null;
+  gatePass: boolean | null;
 }
 
 interface ArtifactIndexFile {
@@ -29,6 +30,7 @@ interface ArtifactIndexFile {
   artifactsDir: string;
   configHashFilter: string | null;
   kindFilter: ArtifactKind | null;
+  gatePassOnly: boolean;
   sortBy: ArtifactSortBy;
   latestOnly: boolean;
   limit: number | null;
@@ -76,6 +78,7 @@ function paperSummary(artifact: PaperReportArtifact, jsonPath: string, markdownP
     config: artifact.config ?? null,
     netPnlUsd: artifact.cumulativeMetrics.netPnlUsd,
     expectancyUsd: artifact.cumulativeMetrics.expectancyUsd,
+    gatePass: null,
     details: [
       `Config: ${artifact.config?.summary ?? "n/a"} (${artifact.config?.sha256.slice(0, 12) ?? "n/a"})`,
       `Processed through ${artifact.run.processedThroughUtc ?? "n/a"}`,
@@ -98,10 +101,12 @@ function researchSummary(
     config: artifact.config ?? null,
     netPnlUsd: artifact.walkforward.rolledUpMetrics.netPnlUsd,
     expectancyUsd: artifact.walkforward.rolledUpMetrics.expectancyUsd,
+    gatePass: artifact.finalAssessment.gatePass,
     details: [
       `Config: ${artifact.config?.summary ?? "n/a"} (${artifact.config?.sha256.slice(0, 12) ?? "n/a"})`,
       `Baseline test expectancy ${artifact.baseline.test.metrics.expectancyUsd.toFixed(2)} USD`,
-      `Walk-forward OOS expectancy ${artifact.walkforward.rolledUpMetrics.expectancyUsd.toFixed(2)} USD`
+      `Walk-forward OOS expectancy ${artifact.walkforward.rolledUpMetrics.expectancyUsd.toFixed(2)} USD`,
+      `Gate pass: ${artifact.finalAssessment.gatePass ? "yes" : "no"}`
     ]
   };
 }
@@ -121,6 +126,7 @@ function walkforwardSummary(
     config: artifact.config ?? null,
     netPnlUsd: artifact.rolledUpMetrics.netPnlUsd,
     expectancyUsd: artifact.rolledUpMetrics.expectancyUsd,
+    gatePass: null,
     details: [
       `Config: ${artifact.config?.summary ?? "n/a"} (${artifact.config?.sha256.slice(0, 12) ?? "n/a"})`,
       `OOS net PnL ${artifact.rolledUpMetrics.netPnlUsd.toFixed(2)} USD`,
@@ -232,7 +238,7 @@ function buildConfigGroups(
 }
 
 export async function buildArtifactIndex(artifactsDir = DEFAULT_ARTIFACTS_DIR): Promise<ArtifactIndexFile> {
-  return buildArtifactIndexWithFilter(artifactsDir, null, null, "generated_at", false, null);
+  return buildArtifactIndexWithFilter(artifactsDir, null, null, false, "generated_at", false, null);
 }
 
 function matchesConfigHash(summary: ArtifactLatestSummary, configHashFilter: string | null): boolean {
@@ -247,6 +253,23 @@ function matchesKind(summary: ArtifactLatestSummary, kindFilter: ArtifactKind | 
     return true;
   }
   return summary.kind === kindFilter;
+}
+
+function latestResearchGatePassByConfig(summaries: ArtifactLatestSummary[]): Set<string> {
+  const latestResearch = new Map<string, ArtifactLatestSummary>();
+  for (const summary of summaries.filter((item) => item.kind === "research" && item.config)) {
+    const sha = summary.config!.sha256;
+    const existing = latestResearch.get(sha);
+    if (!existing || sortLatest(summary, existing) < 0) {
+      latestResearch.set(sha, summary);
+    }
+  }
+
+  return new Set(
+    [...latestResearch.entries()]
+      .filter(([, summary]) => summary.gatePass === true)
+      .map(([sha]) => sha)
+  );
 }
 
 function latestForKind(
@@ -266,6 +289,7 @@ export async function buildArtifactIndexWithFilter(
   artifactsDir = DEFAULT_ARTIFACTS_DIR,
   configHashFilter: string | null = null,
   kindFilter: ArtifactKind | null = null,
+  gatePassOnly = false,
   sortBy: ArtifactSortBy = "generated_at",
   latestOnly = false,
   limit: number | null = null
@@ -281,15 +305,18 @@ export async function buildArtifactIndexWithFilter(
   const researchSummaries = await loadResearchSummaries(researchDir, researchFiles);
   const walkforwardSummaries = await loadWalkForwardSummaries(artifactsDir, rootFiles);
   const allSummaries = [...paperSummaries, ...researchSummaries, ...walkforwardSummaries];
-
-  const latest: Partial<Record<ArtifactKind, ArtifactLatestSummary>> = {};
-  latest.paper = latestForKind("paper", allSummaries, configHashFilter, kindFilter);
-  latest.research = latestForKind("research", allSummaries, configHashFilter, kindFilter);
-  latest.walkforward = latestForKind("walkforward", allSummaries, configHashFilter, kindFilter);
+  const gatePassingConfigs = latestResearchGatePassByConfig(allSummaries);
 
   const filteredSummaries = allSummaries
     .filter((summary) => matchesConfigHash(summary, configHashFilter))
-    .filter((summary) => matchesKind(summary, kindFilter));
+    .filter((summary) => matchesKind(summary, kindFilter))
+    .filter((summary) => !gatePassOnly || (summary.config ? gatePassingConfigs.has(summary.config.sha256) : false));
+
+  const latest: Partial<Record<ArtifactKind, ArtifactLatestSummary>> = {};
+  latest.paper = latestForKind("paper", filteredSummaries, null, null);
+  latest.research = latestForKind("research", filteredSummaries, null, null);
+  latest.walkforward = latestForKind("walkforward", filteredSummaries, null, null);
+
   const filteredConfigGroups = buildConfigGroups(filteredSummaries, sortBy);
   const totalConfigProfiles = filteredConfigGroups.length;
   const effectiveLimit = latestOnly ? 1 : limit;
@@ -301,6 +328,7 @@ export async function buildArtifactIndexWithFilter(
     artifactsDir,
     configHashFilter,
     kindFilter,
+    gatePassOnly,
     sortBy,
     latestOnly,
     limit,
@@ -323,6 +351,7 @@ export function renderArtifactIndexMarkdown(index: ArtifactIndexFile): string {
     `- Artifacts dir: ${index.artifactsDir}`,
     `- Config hash filter: ${index.configHashFilter ?? "none"}`,
     `- Kind filter: ${index.kindFilter ?? "none"}`,
+    `- Gate pass only: ${index.gatePassOnly ? "yes" : "no"}`,
     `- Sort by: ${index.sortBy}`,
     `- Latest only: ${index.latestOnly ? "yes" : "no"}`,
     `- Limit: ${index.limit ?? "none"}`,
@@ -383,15 +412,25 @@ export async function writeArtifactIndex(
   artifactsDir = DEFAULT_ARTIFACTS_DIR,
   configHashFilter: string | null = null,
   kindFilter: ArtifactKind | null = null,
+  gatePassOnly = false,
   sortBy: ArtifactSortBy = "generated_at",
   latestOnly = false,
   limit: number | null = null
 ): Promise<WrittenArtifactPaths & { index: ArtifactIndexFile }> {
-  const index = await buildArtifactIndexWithFilter(artifactsDir, configHashFilter, kindFilter, sortBy, latestOnly, limit);
+  const index = await buildArtifactIndexWithFilter(
+    artifactsDir,
+    configHashFilter,
+    kindFilter,
+    gatePassOnly,
+    sortBy,
+    latestOnly,
+    limit
+  );
   await mkdir(artifactsDir, { recursive: true });
   const suffixParts = [
     configHashFilter,
     kindFilter,
+    gatePassOnly ? "gate-pass" : null,
     sortBy === "generated_at" ? null : `sort-${sortBy.replace(/_/g, "-")}`,
     latestOnly ? "latest" : null,
     limit === null ? null : `limit-${limit}`

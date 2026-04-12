@@ -203,6 +203,14 @@ export interface StrategyConfigReference {
   summary: string;
 }
 
+export interface RunProvenance {
+  gitCommitSha: string | null;
+  nodeVersion: string;
+  dbPath: string | null;
+  eventWindowCount: number;
+  sourceRange: DateRange | null;
+}
+
 export interface AccountState {
   equityUsd: number;
   startOfDayEquityUsd: number;
@@ -297,6 +305,7 @@ export interface PaperReportArtifact {
   symbol: string;
   strategyId: StrategyId;
   config?: StrategyConfigReference;
+  runProvenance: RunProvenance;
   source: TradeSource;
   run: {
     startUtc: string;
@@ -350,11 +359,42 @@ export interface EventScenarioResult {
   };
 }
 
+export interface ResearchGateConfig {
+  minTrades: number;
+  minSelectedWalkforwardWindows: number;
+  minExpectancyUsd: number;
+  maxDrawdownUsd: number;
+}
+
+export interface GateThresholdResult {
+  passed: boolean;
+  actual: number;
+  threshold: number;
+}
+
+export interface ResearchGateResult {
+  baselineTestTrades: GateThresholdResult;
+  walkforwardTrades: GateThresholdResult;
+  selectedWalkforwardWindows: GateThresholdResult;
+  baselineTestExpectancy: GateThresholdResult;
+  walkforwardExpectancy: GateThresholdResult;
+  baselineTestMaxDrawdown: GateThresholdResult;
+  walkforwardMaxDrawdown: GateThresholdResult;
+  sensitivityTopCandidatesTrades: {
+    passed: boolean;
+    threshold: number;
+    passingCandidates: number;
+    totalCandidates: number;
+  };
+}
+
 export interface FinalResearchAssessment {
   baseline_test_positive_expectancy: boolean;
   walkforward_oos_positive_expectancy: boolean;
   parameter_stability_pass: boolean;
   event_filter_dependence: "low" | "moderate" | "high";
+  gatePass: boolean;
+  gateFailureReasons: string[];
   recommendation: "continue_paper" | "research_more" | "reject_current_rule_set";
 }
 
@@ -363,6 +403,7 @@ export interface ResearchReportArtifact {
   symbol: string;
   strategyId: StrategyId;
   config?: StrategyConfigReference;
+  runProvenance: RunProvenance;
   baseline: {
     train: AcceptanceSliceResult;
     validation: AcceptanceSliceResult;
@@ -392,6 +433,8 @@ export interface ResearchReportArtifact {
     baselineScenario: "default";
     scenarios: EventScenarioResult[];
   };
+  gateConfig: ResearchGateConfig;
+  gateResults: ResearchGateResult;
   finalAssessment: FinalResearchAssessment;
 }
 
@@ -432,6 +475,7 @@ export interface WalkForwardArtifact {
   generatedAtUtc: string;
   symbol: string;
   config?: StrategyConfigReference;
+  runProvenance: RunProvenance;
   mode: "fixed" | "grid";
   sourceRange: DateRange;
   windowSpec: {
@@ -452,4 +496,24 @@ export interface WalkForwardRunOptions {
   validationDays: number;
   testDays: number;
   stepDays: number;
+}
+
+export interface BatchStepResult {
+  step: "sync-calendars" | "ingest" | "paper" | "research" | "artifacts";
+  status: "completed" | "skipped" | "failed";
+  startedAtUtc: string;
+  completedAtUtc: string | null;
+  message: string;
+  artifactPaths?: string[];
+}
+
+export interface BatchRunArtifact {
+  generatedAtUtc: string;
+  completedAtUtc: string;
+  status: "completed" | "failed";
+  failedStep: BatchStepResult["step"] | null;
+  strategyId: StrategyId;
+  config: StrategyConfigReference;
+  runProvenance: RunProvenance;
+  steps: BatchStepResult[];
 }

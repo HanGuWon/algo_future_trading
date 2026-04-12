@@ -70,10 +70,13 @@ describe("walk-forward CLI", () => {
     expect(markdownName).toBeTruthy();
     const parsed = JSON.parse(await readFile(join(artifactsDir, jsonName!), "utf8")) as {
       config?: { path: string; sha256: string };
+      runProvenance?: { dbPath: string | null };
     };
     expect(parsed.config?.path).toContain("session-filtered-trend-pullback-v1.research-tight.json");
     expect(parsed.config?.sha256).toHaveLength(64);
+    expect(parsed.runProvenance?.dbPath).toBe("mock.sqlite");
     const markdown = await readFile(join(artifactsDir, markdownName!), "utf8");
     expect(markdown).toContain("Config SHA256:");
+    expect(markdown).toContain("Git commit:");
   });
 });
