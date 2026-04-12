@@ -24,6 +24,7 @@ npm run artifacts -- --artifacts-dir artifacts
 npm run artifacts -- --artifacts-dir artifacts --config-hash aaaaaaaa
 npm run artifacts -- --artifacts-dir artifacts --kind paper
 npm run artifacts -- --artifacts-dir artifacts --kind daily
+npm run artifacts -- --artifacts-dir artifacts --kind daily --min-escalation attention
 npm run artifacts -- --artifacts-dir artifacts --gate-pass-only
 npm run artifacts -- --artifacts-dir artifacts --sort-by net_pnl
 npm run artifacts -- --artifacts-dir artifacts --latest-only
@@ -34,6 +35,7 @@ npm run batch -- --db data/mnq-research.sqlite --config config/strategies/sessio
 npm run batch -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts --input-dir data/mnq_drop
 npm run daily -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts --input-dir data/mnq_drop
 npm run ops -- --artifacts-dir artifacts
+npm run ops -- --artifacts-dir artifacts --min-escalation attention
 ```
 
 Expected CSV columns:
@@ -71,6 +73,7 @@ Directory ingest notes:
 - `artifacts` also groups the latest `paper`, `research`, `walkforward`, `batch`, and `daily` outputs by strategy config hash so different parameter profiles can be compared safely.
 - `artifacts --config-hash <prefix>` narrows the index to one config family and writes `artifacts/index-<prefix>.json|md`.
 - `artifacts --kind paper|research|walkforward|batch|daily` narrows the index to one artifact class and can be combined with `--config-hash`.
+- `artifacts --kind daily --min-escalation attention|critical` keeps only daily artifacts whose escalation level meets that threshold.
 - `artifacts --gate-pass-only` keeps only config groups whose latest research artifact passes the built-in research gates.
 - `artifacts --sort-by generated_at|net_pnl|expectancy` changes how config groups are ranked in the grouped summary.
 - `artifacts --latest-only` shows only the newest config group in the grouped summary while keeping overall counts intact.
@@ -105,6 +108,7 @@ Directory ingest notes:
   - `NONE` when recent history does not require intervention
 - `daily` exits `0` for `OK` and `WARN`, and exits non-zero only for `FAIL`.
 - `ops` is a read-only command that prints the same recent operations-history block without running `batch`.
+- `ops --min-escalation attention|critical` appends only the recent runs that meet the requested escalation threshold.
 - `FAIL` streak counts only trailing `FAIL` runs; non-OK streak counts trailing `WARN` or `FAIL` runs.
 - ingest file history is stored in SQLite `ingestion_files` so daily reruns remain idempotent.
 - `trades` are now tagged with a source so cumulative paper reports only use `PAPER` trades, not backtest inserts.
@@ -121,4 +125,4 @@ CWD: C:\Users\한구원\Desktop\algo_future_trading
 Command: npm run daily -- --db "data/mnq-research.sqlite" --config "config/strategies/session-filtered-trend-pullback-v1.json" --artifacts-dir "artifacts" --input-dir "data/mnq_drop"
 ```
 
-The `daily` summary is the intended automation output. It includes overall status, batch status, failed step, warning codes, ingestion counts, inserted bars, source range, paper new trades, research recommendation, research gate pass, latest artifact paths, and a short operations-history block.
+The `daily` summary is the intended automation output. It includes overall status, batch status, failed step, warning codes, ingestion counts, inserted bars, source range, paper new trades, research recommendation, research gate pass, latest artifact paths, and a short operations-history block. Use `ops --min-escalation attention` when you only want the recent intervention-worthy runs.

@@ -1,8 +1,10 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DEFAULT_ARTIFACTS_DIR } from "../config/defaults.js";
+import { matchesDailyEscalationThreshold } from "./dailyRun.js";
 import type {
   BatchRunArtifact,
+  DailyEscalationLevel,
   DailyRunArtifact,
   PaperReportArtifact,
   ResearchReportArtifact,
@@ -25,6 +27,7 @@ interface ArtifactLatestSummary {
   netPnlUsd: number | null;
   expectancyUsd: number | null;
   gatePass: boolean | null;
+  escalationLevel: DailyEscalationLevel | null;
 }
 
 interface ArtifactIndexFile {
@@ -32,6 +35,7 @@ interface ArtifactIndexFile {
   artifactsDir: string;
   configHashFilter: string | null;
   kindFilter: ArtifactKind | null;
+  minEscalationFilter: DailyEscalationLevel | null;
   gatePassOnly: boolean;
   sortBy: ArtifactSortBy;
   latestOnly: boolean;
@@ -81,6 +85,7 @@ function paperSummary(artifact: PaperReportArtifact, jsonPath: string, markdownP
     netPnlUsd: artifact.cumulativeMetrics.netPnlUsd,
     expectancyUsd: artifact.cumulativeMetrics.expectancyUsd,
     gatePass: null,
+    escalationLevel: null,
     details: [
       `Config: ${artifact.config?.summary ?? "n/a"} (${artifact.config?.sha256.slice(0, 12) ?? "n/a"})`,
       `Processed through ${artifact.run.processedThroughUtc ?? "n/a"}`,
@@ -104,6 +109,7 @@ function researchSummary(
     netPnlUsd: artifact.walkforward.rolledUpMetrics.netPnlUsd,
     expectancyUsd: artifact.walkforward.rolledUpMetrics.expectancyUsd,
     gatePass: artifact.finalAssessment.gatePass,
+    escalationLevel: null,
     details: [
       `Config: ${artifact.config?.summary ?? "n/a"} (${artifact.config?.sha256.slice(0, 12) ?? "n/a"})`,
       `Baseline test expectancy ${artifact.baseline.test.metrics.expectancyUsd.toFixed(2)} USD`,
@@ -129,6 +135,7 @@ function walkforwardSummary(
     netPnlUsd: artifact.rolledUpMetrics.netPnlUsd,
     expectancyUsd: artifact.rolledUpMetrics.expectancyUsd,
     gatePass: null,
+    escalationLevel: null,
     details: [
       `Config: ${artifact.config?.summary ?? "n/a"} (${artifact.config?.sha256.slice(0, 12) ?? "n/a"})`,
       `OOS net PnL ${artifact.rolledUpMetrics.netPnlUsd.toFixed(2)} USD`,
@@ -149,6 +156,7 @@ function batchSummary(artifact: BatchRunArtifact, jsonPath: string): ArtifactLat
     netPnlUsd: null,
     expectancyUsd: null,
     gatePass: null,
+    escalationLevel: null,
     details: [
       `Config: ${artifact.config?.summary ?? "n/a"} (${artifact.config?.sha256.slice(0, 12) ?? "n/a"})`,
       `Failed step: ${artifact.failedStep ?? "none"}`,
@@ -168,6 +176,7 @@ function dailySummary(artifact: DailyRunArtifact, jsonPath: string, markdownPath
     netPnlUsd: null,
     expectancyUsd: null,
     gatePass: artifact.researchGatePass,
+    escalationLevel: artifact.historySnapshot?.escalationLevel ?? "NONE",
     details: [
       `Config: ${artifact.config?.summary ?? "n/a"} (${artifact.config?.sha256.slice(0, 12) ?? "n/a"})`,
       `Failed step: ${artifact.failedStep ?? "none"}`,
@@ -322,7 +331,7 @@ function buildConfigGroups(
 }
 
 export async function buildArtifactIndex(artifactsDir = DEFAULT_ARTIFACTS_DIR): Promise<ArtifactIndexFile> {
-  return buildArtifactIndexWithFilter(artifactsDir, null, null, false, "generated_at", false, null);
+  return buildArtifactIndexWithFilter(artifactsDir, null, null, null, false, "generated_at", false, null);
 }
 
 function matchesConfigHash(summary: ArtifactLatestSummary, configHashFilter: string | null): boolean {
@@ -337,6 +346,19 @@ function matchesKind(summary: ArtifactLatestSummary, kindFilter: ArtifactKind | 
     return true;
   }
   return summary.kind === kindFilter;
+}
+
+function matchesMinEscalation(
+  summary: ArtifactLatestSummary,
+  minEscalationFilter: DailyEscalationLevel | null
+): boolean {
+  if (!minEscalationFilter) {
+    return true;
+  }
+  if (summary.kind !== "daily") {
+    return false;
+  }
+  return matchesDailyEscalationThreshold(summary.escalationLevel ?? "NONE", minEscalationFilter);
 }
 
 function latestResearchGatePassByConfig(summaries: ArtifactLatestSummary[]): Set<string> {
@@ -373,6 +395,7 @@ export async function buildArtifactIndexWithFilter(
   artifactsDir = DEFAULT_ARTIFACTS_DIR,
   configHashFilter: string | null = null,
   kindFilter: ArtifactKind | null = null,
+  minEscalationFilter: DailyEscalationLevel | null = null,
   gatePassOnly = false,
   sortBy: ArtifactSortBy = "generated_at",
   latestOnly = false,
@@ -400,6 +423,7 @@ export async function buildArtifactIndexWithFilter(
   const filteredSummaries = allSummaries
     .filter((summary) => matchesConfigHash(summary, configHashFilter))
     .filter((summary) => matchesKind(summary, kindFilter))
+    .filter((summary) => matchesMinEscalation(summary, minEscalationFilter))
     .filter((summary) => !gatePassOnly || (summary.config ? gatePassingConfigs.has(summary.config.sha256) : false));
 
   const latest: Partial<Record<ArtifactKind, ArtifactLatestSummary>> = {};
@@ -420,6 +444,7 @@ export async function buildArtifactIndexWithFilter(
     artifactsDir,
     configHashFilter,
     kindFilter,
+    minEscalationFilter,
     gatePassOnly,
     sortBy,
     latestOnly,
@@ -445,6 +470,7 @@ export function renderArtifactIndexMarkdown(index: ArtifactIndexFile): string {
     `- Artifacts dir: ${index.artifactsDir}`,
     `- Config hash filter: ${index.configHashFilter ?? "none"}`,
     `- Kind filter: ${index.kindFilter ?? "none"}`,
+    `- Min escalation filter: ${index.minEscalationFilter ?? "none"}`,
     `- Gate pass only: ${index.gatePassOnly ? "yes" : "no"}`,
     `- Sort by: ${index.sortBy}`,
     `- Latest only: ${index.latestOnly ? "yes" : "no"}`,
@@ -508,17 +534,19 @@ export async function writeArtifactIndex(
   artifactsDir = DEFAULT_ARTIFACTS_DIR,
   configHashFilter: string | null = null,
   kindFilter: ArtifactKind | null = null,
+  minEscalationFilter: DailyEscalationLevel | null = null,
   gatePassOnly = false,
   sortBy: ArtifactSortBy = "generated_at",
   latestOnly = false,
   limit: number | null = null
 ): Promise<WrittenArtifactPaths & { index: ArtifactIndexFile }> {
   const index = await buildArtifactIndexWithFilter(
-    artifactsDir,
-    configHashFilter,
-    kindFilter,
-    gatePassOnly,
-    sortBy,
+      artifactsDir,
+      configHashFilter,
+      kindFilter,
+      minEscalationFilter,
+      gatePassOnly,
+      sortBy,
     latestOnly,
     limit
   );
@@ -526,6 +554,7 @@ export async function writeArtifactIndex(
   const suffixParts = [
     configHashFilter,
     kindFilter,
+    minEscalationFilter ? `escalation-${minEscalationFilter.toLowerCase()}` : null,
     gatePassOnly ? "gate-pass" : null,
     sortBy === "generated_at" ? null : `sort-${sortBy.replace(/_/g, "-")}`,
     latestOnly ? "latest" : null,

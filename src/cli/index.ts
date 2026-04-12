@@ -24,6 +24,7 @@ import {
   buildDailyRunArtifact,
   buildDailyOperationsSummary,
   buildDailyRunSummary,
+  renderEscalatedDailyRuns,
   renderDailyRunSummary,
   renderDailyOperationsSummary,
   resolveRecentDailyRunArtifacts,
@@ -49,6 +50,7 @@ import type {
   BatchRunArtifact,
   BatchIngestionSummary,
   BatchStepResult,
+  DailyEscalationLevel,
   DailyRunSummary,
   DateRange,
   IngestionRunSummary,
@@ -58,6 +60,23 @@ import type {
   RunProvenance,
   WalkForwardArtifact
 } from "../types.js";
+
+function parseDailyEscalationOption(value: string | undefined, optionName: string): DailyEscalationLevel | null {
+  if (value === undefined) {
+    return null;
+  }
+  const normalized = value.toLowerCase();
+  if (normalized === "none") {
+    return "NONE";
+  }
+  if (normalized === "attention") {
+    return "ATTENTION";
+  }
+  if (normalized === "critical") {
+    return "CRITICAL";
+  }
+  throw new Error(`${optionName} must be one of: none, attention, critical`);
+}
 
 export function parseArgs(argv: string[]): Map<string, string> {
   const options = new Map<string, string>();
@@ -521,6 +540,7 @@ async function artifactsCommand(
   const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
   const configHash = options.get("config-hash") ?? null;
   const gatePassOnly = options.get("gate-pass-only") === "true";
+  const minEscalation = parseDailyEscalationOption(options.get("min-escalation"), "artifacts --min-escalation");
   const rawSortBy = options.get("sort-by");
   let sortBy: ArtifactSortBy = "generated_at";
   if (rawSortBy !== undefined) {
@@ -551,10 +571,23 @@ async function artifactsCommand(
   if (rawKind && !kind) {
     throw new Error("artifacts --kind must be one of: paper, research, walkforward, batch, daily");
   }
-  const result = await writeArtifactIndex(artifactsDir, configHash, kind, gatePassOnly, sortBy, latestOnly, limit);
+  if (minEscalation && kind !== "daily") {
+    throw new Error("artifacts --min-escalation requires --kind daily");
+  }
+  const result = await writeArtifactIndex(
+    artifactsDir,
+    configHash,
+    kind,
+    minEscalation,
+    gatePassOnly,
+    sortBy,
+    latestOnly,
+    limit
+  );
   logger.log("Artifact index complete");
   logger.log(`Config hash filter: ${configHash ?? "none"}`);
   logger.log(`Kind filter: ${kind ?? "none"}`);
+  logger.log(`Min escalation: ${minEscalation ?? "none"}`);
   logger.log(`Gate pass only: ${gatePassOnly ? "yes" : "no"}`);
   logger.log(`Sort by: ${sortBy}`);
   logger.log(`Latest only: ${latestOnly ? "yes" : "no"}`);
@@ -795,11 +828,17 @@ async function opsCommand(
   if (!Number.isInteger(limit) || limit < 0) {
     throw new Error("ops --limit must be a non-negative integer");
   }
+  const minEscalation = parseDailyEscalationOption(options.get("min-escalation"), "ops --min-escalation");
 
   const runs = await resolveRecentDailyRunArtifacts(artifactsDir, limit);
   const summary = buildDailyOperationsSummary(runs, limit);
   for (const line of renderDailyOperationsSummary(summary)) {
     logger.log(line);
+  }
+  if (minEscalation) {
+    for (const line of renderEscalatedDailyRuns(runs, minEscalation)) {
+      logger.log(line);
+    }
   }
   return { summary };
 }
@@ -841,10 +880,10 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
     default:
       logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper, batch, daily, ops");
       logger.log('ingest options: (--file <csv> | --dir <folder>) [--db path] [--symbol MNQ] [--contract H26]');
-      logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward|batch|daily] [--gate-pass-only] [--sort-by generated_at|net_pnl|expectancy] [--latest-only] [--limit N]');
+      logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward|batch|daily] [--min-escalation none|attention|critical] [--gate-pass-only] [--sort-by generated_at|net_pnl|expectancy] [--latest-only] [--limit N]');
       logger.log('batch options: [--db path] [--config path] [--artifacts-dir path] [--file csv | --input-dir folder] [--contract H26] [--start iso] [--end iso]');
       logger.log('daily options: [--db path] [--config path] [--artifacts-dir path] --input-dir folder [--start iso] [--end iso]');
-      logger.log('ops options: [--artifacts-dir path] [--limit N]');
+      logger.log('ops options: [--artifacts-dir path] [--limit N] [--min-escalation none|attention|critical]');
       logger.log(`strategy options: [--config ${DEFAULT_STRATEGY_CONFIG_PATH}]`);
   }
 }

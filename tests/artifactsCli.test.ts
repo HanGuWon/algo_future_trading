@@ -584,6 +584,99 @@ describe("artifacts CLI", () => {
     expect(filteredMarkdown).toContain("research: none");
   });
 
+  it("filters daily artifact groups by minimum escalation", async () => {
+    const { runCli } = await import("../src/cli/index.js");
+    const artifactsDir = await mkdtemp(join(tmpdir(), "artifact-index-daily-escalation-"));
+    tempDirs.push(artifactsDir);
+    const dailyDir = join(artifactsDir, "daily");
+    await mkdir(dailyDir, { recursive: true });
+
+    for (const artifact of [
+      {
+        name: "daily-run-2026-04-12T00-00-00-000Z.json",
+        sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        summary: "daily-none",
+        escalationLevel: "NONE",
+        escalationCodes: []
+      },
+      {
+        name: "daily-run-2026-04-13T00-00-00-000Z.json",
+        sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        summary: "daily-attention",
+        escalationLevel: "ATTENTION",
+        escalationCodes: ["REPEATED_NO_NEW_FILES"]
+      }
+    ] as const) {
+      await writeFile(
+        join(dailyDir, artifact.name),
+        JSON.stringify({
+          generatedAtUtc: artifact.name.includes("2026-04-13") ? "2026-04-13T00:00:00.000Z" : "2026-04-12T00:00:00.000Z",
+          batchStatus: "completed",
+          failedStep: null,
+          overallStatus: artifact.escalationLevel === "NONE" ? "OK" : "WARN",
+          warningCodes: artifact.escalationLevel === "NONE" ? [] : ["NO_NEW_FILES"],
+          warningMessages: [],
+          healthChecks: [],
+          ingestionSummary: null,
+          paperNewTrades: artifact.escalationLevel === "NONE" ? 1 : 0,
+          researchRecommendation: artifact.escalationLevel === "NONE" ? "continue_paper" : "research_more",
+          researchGatePass: true,
+          artifactPaths: {
+            batchJsonPath: null,
+            paperJsonPath: null,
+            researchJsonPath: null,
+            dailyJsonPath: null,
+            dailyMarkdownPath: null
+          },
+          operationsSummary: null,
+          config: {
+            path: `config/strategies/${artifact.summary}.json`,
+            sha256: artifact.sha256,
+            summary: artifact.summary
+          },
+          runProvenance: null,
+          batchGeneratedAtUtc: null,
+          paperGeneratedAtUtc: null,
+          researchGeneratedAtUtc: null,
+          historySnapshot: {
+            windowSize: 2,
+            okCount: artifact.escalationLevel === "NONE" ? 1 : 0,
+            warnCount: artifact.escalationLevel === "ATTENTION" ? 1 : 0,
+            failCount: 0,
+            consecutiveFailCount: 0,
+            consecutiveNonOkCount: artifact.escalationLevel === "ATTENTION" ? 2 : 0,
+            latestOkGeneratedAtUtc: "2026-04-12T00:00:00.000Z",
+            latestFailGeneratedAtUtc: null,
+            escalationLevel: artifact.escalationLevel,
+            escalationCodes: artifact.escalationCodes,
+            warningCodeCounts: artifact.escalationLevel === "ATTENTION" ? [{ code: "NO_NEW_FILES", count: 2 }] : []
+          }
+        }),
+        "utf8"
+      );
+    }
+
+    const output: string[] = [];
+    await runCli(
+      ["artifacts", "--artifacts-dir", artifactsDir, "--kind", "daily", "--min-escalation", "attention"],
+      {
+        log: (message: string) => {
+          output.push(message);
+        }
+      }
+    );
+
+    expect(output.some((line) => line.includes("Kind filter: daily"))).toBe(true);
+    expect(output.some((line) => line.includes("Min escalation: ATTENTION"))).toBe(true);
+    expect(output.some((line) => line.includes("Daily reports: 1"))).toBe(true);
+    expect(output.some((line) => line.includes("Config profiles total: 1"))).toBe(true);
+    expect((await readdir(artifactsDir)).includes("index-daily-escalation-attention.json")).toBe(true);
+    const markdown = await readFile(join(artifactsDir, "index-daily-escalation-attention.md"), "utf8");
+    expect(markdown).toContain("Min escalation filter: ATTENTION");
+    expect(markdown).toContain("daily-attention");
+    expect(markdown).not.toContain("daily-none");
+  });
+
   it("filters the artifact index by artifact kind", async () => {
     const { runCli } = await import("../src/cli/index.js");
     const artifactsDir = await mkdtemp(join(tmpdir(), "artifact-index-kind-"));

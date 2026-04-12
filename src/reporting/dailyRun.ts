@@ -29,6 +29,11 @@ const DEFAULT_HISTORY_LIMIT = 14;
 const REPEATED_WARNING_THRESHOLD = 2;
 const PERSISTENT_NON_OK_THRESHOLD = 3;
 const CRITICAL_FAIL_STREAK_THRESHOLD = 2;
+const ESCALATION_LEVEL_RANK: Record<DailyEscalationLevel, number> = {
+  NONE: 0,
+  ATTENTION: 1,
+  CRITICAL: 2
+};
 
 const WARNING_MESSAGES: Record<DailyWarningCode, string> = {
   NO_NEW_FILES: "No new CSV files were ingested in this run.",
@@ -237,6 +242,16 @@ function buildEscalation(
     level: "NONE",
     codes: uniqueCodes
   };
+}
+
+export function matchesDailyEscalationThreshold(
+  level: DailyEscalationLevel,
+  minLevel: DailyEscalationLevel | null
+): boolean {
+  if (!minLevel) {
+    return true;
+  }
+  return ESCALATION_LEVEL_RANK[level] >= ESCALATION_LEVEL_RANK[minLevel];
 }
 
 function countLeadingStatuses(runs: DailyRunArtifact[], matcher: (status: DailyHealthStatus) => boolean): number {
@@ -466,6 +481,33 @@ export function renderDailyOperationsSummary(summary: DailyOperationsSummary | n
     `Top warning codes: ${topWarningsLabel(summary)}`,
     `Escalation: ${summary.escalationLevel}${summary.escalationCodes.length > 0 ? ` (${summary.escalationCodes.join(", ")})` : ""}`
   ];
+}
+
+export function renderEscalatedDailyRuns(
+  runs: DailyRunArtifact[],
+  minLevel: DailyEscalationLevel
+): string[] {
+  const matchingRuns = sortGeneratedAtDesc(runs).filter((run) =>
+    matchesDailyEscalationThreshold(run.historySnapshot?.escalationLevel ?? "NONE", minLevel)
+  );
+
+  const lines = ["Escalated runs", `Threshold: ${minLevel}`];
+  if (matchingRuns.length === 0) {
+    lines.push("Matches: none");
+    return lines;
+  }
+
+  for (const run of matchingRuns) {
+    const level = run.historySnapshot?.escalationLevel ?? "NONE";
+    const codes = run.historySnapshot?.escalationCodes ?? [];
+    lines.push(
+      `${run.generatedAtUtc} | status=${run.overallStatus} | escalation=${level}${
+        codes.length > 0 ? ` (${codes.join(", ")})` : ""
+      }`
+    );
+  }
+
+  return lines;
 }
 
 export function renderDailyRunSummary(summary: DailyRunSummary): string[] {

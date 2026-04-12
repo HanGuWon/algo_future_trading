@@ -235,6 +235,7 @@ describe("daily CLI", () => {
     expect(lines).toContain("Research gate pass: yes");
     expect(lines).toContain("Operations history");
     expect(lines).toContain("Recent runs analyzed: 0");
+    expect(lines).toContain("Escalation: NONE");
   });
 
   it("builds operations history with correct counts and streaks", () => {
@@ -561,6 +562,7 @@ describe("daily CLI", () => {
     expect(output.some((line) => line.includes("Research recommendation: continue_paper"))).toBe(true);
     expect(output.some((line) => line.includes("Operations history"))).toBe(true);
     expect(output.some((line) => line.includes("Recent runs analyzed: 1"))).toBe(true);
+    expect(output.some((line) => line.includes("Escalation: NONE"))).toBe(true);
     expect(output.some((line) => line.includes("Automation schedule: Every day at 06:00 Asia/Seoul"))).toBe(true);
     expect(output.some((line) => line.includes("Daily artifact JSON:"))).toBe(true);
     const dailyDirFiles = await readdir(join(artifactsDir, "daily"));
