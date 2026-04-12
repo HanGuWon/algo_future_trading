@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { DEFAULT_ARTIFACTS_DIR } from "../config/defaults.js";
 import type {
   BatchRunArtifact,
+  DailyEscalationCode,
+  DailyEscalationLevel,
   DailyHealthCheckResult,
   DailyHealthStatus,
   DailyHistorySnapshot,
@@ -24,6 +26,9 @@ interface LatestDailyArtifacts {
 }
 
 const DEFAULT_HISTORY_LIMIT = 14;
+const REPEATED_WARNING_THRESHOLD = 2;
+const PERSISTENT_NON_OK_THRESHOLD = 3;
+const CRITICAL_FAIL_STREAK_THRESHOLD = 2;
 
 const WARNING_MESSAGES: Record<DailyWarningCode, string> = {
   NO_NEW_FILES: "No new CSV files were ingested in this run.",
@@ -182,6 +187,58 @@ function buildWarningCodeCounts(runs: DailyRunArtifact[]): WarningCodeCount[] {
     });
 }
 
+function warningCountByCode(counts: WarningCodeCount[], code: DailyWarningCode): number {
+  return counts.find((item) => item.code === code)?.count ?? 0;
+}
+
+function buildEscalation(
+  latestStatus: DailyHealthStatus | null,
+  consecutiveFailCount: number,
+  consecutiveNonOkCount: number,
+  warningCodeCounts: WarningCodeCount[]
+): { level: DailyEscalationLevel; codes: DailyEscalationCode[] } {
+  const codes: DailyEscalationCode[] = [];
+
+  if (consecutiveFailCount >= CRITICAL_FAIL_STREAK_THRESHOLD) {
+    codes.push("REPEATED_FAILS");
+  }
+  if (consecutiveNonOkCount >= PERSISTENT_NON_OK_THRESHOLD) {
+    codes.push("PERSISTENT_NON_OK");
+  }
+  if (warningCountByCode(warningCodeCounts, "NO_NEW_FILES") >= REPEATED_WARNING_THRESHOLD) {
+    codes.push("REPEATED_NO_NEW_FILES");
+  }
+  if (warningCountByCode(warningCodeCounts, "STALE_SOURCE_RANGE") >= REPEATED_WARNING_THRESHOLD) {
+    codes.push("REPEATED_STALE_SOURCE_RANGE");
+  }
+  if (warningCountByCode(warningCodeCounts, "RESEARCH_GATE_FAILED") >= 1) {
+    codes.push("RESEARCH_GATE_REGRESSION");
+  }
+
+  const uniqueCodes = [...new Set(codes)];
+  if (uniqueCodes.includes("REPEATED_FAILS") || uniqueCodes.includes("RESEARCH_GATE_REGRESSION")) {
+    return {
+      level: "CRITICAL",
+      codes: uniqueCodes
+    };
+  }
+  if (
+    latestStatus === "FAIL" ||
+    uniqueCodes.includes("PERSISTENT_NON_OK") ||
+    uniqueCodes.includes("REPEATED_NO_NEW_FILES") ||
+    uniqueCodes.includes("REPEATED_STALE_SOURCE_RANGE")
+  ) {
+    return {
+      level: "ATTENTION",
+      codes: uniqueCodes
+    };
+  }
+  return {
+    level: "NONE",
+    codes: uniqueCodes
+  };
+}
+
 function countLeadingStatuses(runs: DailyRunArtifact[], matcher: (status: DailyHealthStatus) => boolean): number {
   let count = 0;
   for (const run of runs) {
@@ -205,6 +262,14 @@ export function buildDailyOperationsSummary(
   const latestOkGeneratedAtUtc = recentRuns.find((run) => run.overallStatus === "OK")?.generatedAtUtc ?? null;
   const latestFailGeneratedAtUtc = recentRuns.find((run) => run.overallStatus === "FAIL")?.generatedAtUtc ?? null;
   const warningCodeCounts = buildWarningCodeCounts(recentRuns);
+  const consecutiveFailCount = countLeadingStatuses(recentRuns, (status) => status === "FAIL");
+  const consecutiveNonOkCount = countLeadingStatuses(recentRuns, (status) => status !== "OK");
+  const escalation = buildEscalation(
+    latest?.overallStatus ?? null,
+    consecutiveFailCount,
+    consecutiveNonOkCount,
+    warningCodeCounts
+  );
 
   return {
     latestStatus: latest?.overallStatus ?? null,
@@ -214,11 +279,13 @@ export function buildDailyOperationsSummary(
     okCount,
     warnCount,
     failCount,
-    consecutiveFailCount: countLeadingStatuses(recentRuns, (status) => status === "FAIL"),
-    consecutiveNonOkCount: countLeadingStatuses(recentRuns, (status) => status !== "OK"),
+    consecutiveFailCount,
+    consecutiveNonOkCount,
     latestOkGeneratedAtUtc,
     latestFailGeneratedAtUtc,
-    warningCodeCounts
+    warningCodeCounts,
+    escalationLevel: escalation.level,
+    escalationCodes: escalation.codes
   };
 }
 
@@ -232,7 +299,9 @@ function toHistorySnapshot(summary: DailyOperationsSummary): DailyHistorySnapsho
     consecutiveNonOkCount: summary.consecutiveNonOkCount,
     latestOkGeneratedAtUtc: summary.latestOkGeneratedAtUtc,
     latestFailGeneratedAtUtc: summary.latestFailGeneratedAtUtc,
-    warningCodeCounts: summary.warningCodeCounts
+    warningCodeCounts: summary.warningCodeCounts,
+    escalationLevel: summary.escalationLevel,
+    escalationCodes: summary.escalationCodes
   };
 }
 
@@ -383,7 +452,7 @@ function topWarningsLabel(summary: DailyOperationsSummary | null): string {
 
 export function renderDailyOperationsSummary(summary: DailyOperationsSummary | null): string[] {
   if (!summary) {
-    return ["Operations history", "Recent runs analyzed: 0"];
+    return ["Operations history", "Recent runs analyzed: 0", "Escalation: NONE"];
   }
 
   return [
@@ -394,7 +463,8 @@ export function renderDailyOperationsSummary(summary: DailyOperationsSummary | n
     `Current non-OK streak: ${summary.consecutiveNonOkCount}`,
     `Latest FAIL: ${summary.latestFailGeneratedAtUtc ?? "n/a"}`,
     `Latest OK: ${summary.latestOkGeneratedAtUtc ?? "n/a"}`,
-    `Top warning codes: ${topWarningsLabel(summary)}`
+    `Top warning codes: ${topWarningsLabel(summary)}`,
+    `Escalation: ${summary.escalationLevel}${summary.escalationCodes.length > 0 ? ` (${summary.escalationCodes.join(", ")})` : ""}`
   ];
 }
 

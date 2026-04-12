@@ -99,6 +99,10 @@ Directory ingest notes:
 - `daily` wraps `batch`, evaluates the latest `batch`, `paper`, and `research` artifacts, and writes `artifacts/daily/daily-run-*.json|md`.
 - `daily` classifies each run as `OK`, `WARN`, or `FAIL` using stable warning codes such as `NO_NEW_FILES`, `NO_NEW_PAPER_TRADES`, `RESEARCH_GATE_FAILED`, `STALE_SOURCE_RANGE`, and `BATCH_FAILED`.
 - `daily` also records a rolling operations-history snapshot over the latest 14 daily artifacts: status counts, fail streak, non-OK streak, latest OK/FAIL timestamps, and warning-code frequency.
+- `daily` and `ops` now also compute an escalation level:
+  - `CRITICAL` for repeated fail streaks or any research-gate regression in recent history
+  - `ATTENTION` for persistent non-OK runs or repeated no-data / stale-data conditions
+  - `NONE` when recent history does not require intervention
 - `daily` exits `0` for `OK` and `WARN`, and exits non-zero only for `FAIL`.
 - `ops` is a read-only command that prints the same recent operations-history block without running `batch`.
 - `FAIL` streak counts only trailing `FAIL` runs; non-OK streak counts trailing `WARN` or `FAIL` runs.

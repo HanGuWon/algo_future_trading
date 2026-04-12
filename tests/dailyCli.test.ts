@@ -329,6 +329,7 @@ describe("daily CLI", () => {
     expect(summary.latestFailGeneratedAtUtc).toBe("2026-04-13T00:00:00.000Z");
     expect(summary.latestOkGeneratedAtUtc).toBe("2026-04-11T00:00:00.000Z");
     expect(summary.warningCodeCounts[0]).toEqual({ code: "BATCH_FAILED", count: 1 });
+    expect(summary.escalationLevel).toBe("ATTENTION");
 
     const lines = renderDailyOperationsSummary(summary);
     expect(lines).toContain("Operations history");
@@ -336,6 +337,57 @@ describe("daily CLI", () => {
     expect(lines).toContain("Status counts: OK=1 WARN=1 FAIL=1");
     expect(lines).toContain("Current fail streak: 1");
     expect(lines).toContain("Current non-OK streak: 2");
+    expect(lines).toContain("Escalation: ATTENTION");
+  });
+
+  it("escalates to CRITICAL on repeated fail streaks", () => {
+    const summary = buildDailyOperationsSummary([
+      {
+        generatedAtUtc: "2026-04-13T00:00:00.000Z",
+        batchStatus: "failed",
+        failedStep: "paper",
+        overallStatus: "FAIL",
+        warningCodes: ["BATCH_FAILED"],
+        warningMessages: [],
+        healthChecks: [],
+        ingestionSummary: null,
+        paperNewTrades: null,
+        researchRecommendation: null,
+        researchGatePass: null,
+        artifactPaths: { batchJsonPath: null, paperJsonPath: null, researchJsonPath: null, dailyJsonPath: null, dailyMarkdownPath: null },
+        operationsSummary: null,
+        config: null,
+        runProvenance: null,
+        batchGeneratedAtUtc: null,
+        paperGeneratedAtUtc: null,
+        researchGeneratedAtUtc: null
+      },
+      {
+        generatedAtUtc: "2026-04-12T00:00:00.000Z",
+        batchStatus: "failed",
+        failedStep: "research",
+        overallStatus: "FAIL",
+        warningCodes: ["BATCH_FAILED", "RESEARCH_GATE_FAILED"],
+        warningMessages: [],
+        healthChecks: [],
+        ingestionSummary: null,
+        paperNewTrades: null,
+        researchRecommendation: "reject_current_rule_set",
+        researchGatePass: false,
+        artifactPaths: { batchJsonPath: null, paperJsonPath: null, researchJsonPath: null, dailyJsonPath: null, dailyMarkdownPath: null },
+        operationsSummary: null,
+        config: null,
+        runProvenance: null,
+        batchGeneratedAtUtc: null,
+        paperGeneratedAtUtc: null,
+        researchGeneratedAtUtc: null
+      }
+    ], 14);
+
+    expect(summary.consecutiveFailCount).toBe(2);
+    expect(summary.escalationLevel).toBe("CRITICAL");
+    expect(summary.escalationCodes).toContain("REPEATED_FAILS");
+    expect(summary.escalationCodes).toContain("RESEARCH_GATE_REGRESSION");
   });
 
   it("returns WARN when no new files or paper trades are produced", () => {

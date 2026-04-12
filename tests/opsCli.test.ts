@@ -100,5 +100,6 @@ describe("ops CLI", () => {
     expect(output).toContain("Current fail streak: 1");
     expect(output).toContain("Current non-OK streak: 2");
     expect(output.some((line) => line.includes("Top warning codes:"))).toBe(true);
+    expect(output).toContain("Escalation: ATTENTION");
   });
 });

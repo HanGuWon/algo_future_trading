@@ -175,6 +175,11 @@ function dailySummary(artifact: DailyRunArtifact, jsonPath: string, markdownPath
       `Warnings: ${artifact.warningCodes.length > 0 ? artifact.warningCodes.join(", ") : "none"}`,
       `Fail streak: ${artifact.historySnapshot?.consecutiveFailCount ?? 0}`,
       `Non-OK streak: ${artifact.historySnapshot?.consecutiveNonOkCount ?? 0}`,
+      `Escalation: ${artifact.historySnapshot?.escalationLevel ?? "NONE"}${
+        artifact.historySnapshot && artifact.historySnapshot.escalationCodes.length > 0
+          ? ` (${artifact.historySnapshot.escalationCodes.join(", ")})`
+          : ""
+      }`,
       `Top warnings: ${
         artifact.historySnapshot && artifact.historySnapshot.warningCodeCounts.length > 0
           ? artifact.historySnapshot.warningCodeCounts

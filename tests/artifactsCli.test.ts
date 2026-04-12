@@ -375,6 +375,8 @@ describe("artifacts CLI", () => {
           consecutiveNonOkCount: 2,
           latestOkGeneratedAtUtc: "2026-04-10T00:10:00.000Z",
           latestFailGeneratedAtUtc: "2026-04-09T00:10:00.000Z",
+          escalationLevel: "ATTENTION",
+          escalationCodes: ["REPEATED_NO_NEW_FILES"],
           warningCodeCounts: [
             { code: "NO_NEW_FILES", count: 2 },
             { code: "RESEARCH_MORE", count: 1 }
@@ -415,6 +417,7 @@ describe("artifacts CLI", () => {
     expect(indexMarkdown).toContain("Latest daily");
     expect(indexMarkdown).toContain("daily-profile");
     expect(indexMarkdown).toContain("Fail streak: 0");
+    expect(indexMarkdown).toContain("Escalation: ATTENTION (REPEATED_NO_NEW_FILES)");
     expect(indexMarkdown).toContain("Top warnings: NO_NEW_FILES:2, RESEARCH_MORE:1");
   });
 

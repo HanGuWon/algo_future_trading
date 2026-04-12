@@ -16,6 +16,7 @@ export type TradeSource = "BACKTEST" | "PAPER";
 export type InputMode = "file" | "dir" | "none";
 export type IngestionFileStatus = "processed" | "failed";
 export type DailyHealthStatus = "OK" | "WARN" | "FAIL";
+export type DailyEscalationLevel = "NONE" | "ATTENTION" | "CRITICAL";
 export type DailyWarningCode =
   | "NO_NEW_FILES"
   | "ZERO_INSERTED_BARS"
@@ -25,6 +26,12 @@ export type DailyWarningCode =
   | "RESEARCH_MORE"
   | "STALE_SOURCE_RANGE"
   | "BATCH_FAILED";
+export type DailyEscalationCode =
+  | "REPEATED_FAILS"
+  | "PERSISTENT_NON_OK"
+  | "REPEATED_NO_NEW_FILES"
+  | "REPEATED_STALE_SOURCE_RANGE"
+  | "RESEARCH_GATE_REGRESSION";
 
 export interface WarningCodeCount {
   code: DailyWarningCode;
@@ -41,6 +48,8 @@ export interface DailyHistorySnapshot {
   latestOkGeneratedAtUtc: string | null;
   latestFailGeneratedAtUtc: string | null;
   warningCodeCounts: WarningCodeCount[];
+  escalationLevel: DailyEscalationLevel;
+  escalationCodes: DailyEscalationCode[];
 }
 
 export interface DailyOperationsSummary extends DailyHistorySnapshot {

@@ -55,6 +55,11 @@ export function renderDailyArtifactMarkdown(artifact: DailyRunArtifact): string 
     `- Consecutive non-OK streak: ${artifact.historySnapshot?.consecutiveNonOkCount ?? 0}`,
     `- Latest OK: ${artifact.historySnapshot?.latestOkGeneratedAtUtc ?? "n/a"}`,
     `- Latest FAIL: ${artifact.historySnapshot?.latestFailGeneratedAtUtc ?? "n/a"}`,
+    `- Escalation: ${artifact.historySnapshot?.escalationLevel ?? "NONE"}${
+      artifact.historySnapshot && artifact.historySnapshot.escalationCodes.length > 0
+        ? ` (${artifact.historySnapshot.escalationCodes.join(", ")})`
+        : ""
+    }`,
     `- Top warning codes: ${
       artifact.historySnapshot && artifact.historySnapshot.warningCodeCounts.length > 0
         ? artifact.historySnapshot.warningCodeCounts
