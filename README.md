@@ -25,6 +25,7 @@ npm run artifacts -- --artifacts-dir artifacts --config-hash aaaaaaaa
 npm run artifacts -- --artifacts-dir artifacts --kind paper
 npm run artifacts -- --artifacts-dir artifacts --kind daily
 npm run artifacts -- --artifacts-dir artifacts --kind daily --min-escalation attention
+npm run artifacts -- --artifacts-dir artifacts --kind ops
 npm run artifacts -- --artifacts-dir artifacts --gate-pass-only
 npm run artifacts -- --artifacts-dir artifacts --sort-by net_pnl
 npm run artifacts -- --artifacts-dir artifacts --latest-only
@@ -36,6 +37,7 @@ npm run batch -- --db data/mnq-research.sqlite --config config/strategies/sessio
 npm run daily -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts --input-dir data/mnq_drop
 npm run ops -- --artifacts-dir artifacts
 npm run ops -- --artifacts-dir artifacts --min-escalation attention
+npm run ops-report -- --artifacts-dir artifacts --min-escalation attention
 ```
 
 Expected CSV columns:
@@ -70,9 +72,9 @@ Directory ingest notes:
 - The engine uses a back-adjusted research series for 1h features and raw execution bars for fills.
 - `backtest` runs one config once; `walkforward` runs rolling train/validation/test windows and writes JSON artifacts.
 - `artifacts` scans the current artifact directory, builds `artifacts/index.json` and `artifacts/index.md`, and prints the latest paper/research/walk-forward/batch summaries.
-- `artifacts` also groups the latest `paper`, `research`, `walkforward`, `batch`, and `daily` outputs by strategy config hash so different parameter profiles can be compared safely.
+- `artifacts` also groups the latest `paper`, `research`, `walkforward`, `batch`, `daily`, and `ops` outputs by strategy config hash so different parameter profiles can be compared safely.
 - `artifacts --config-hash <prefix>` narrows the index to one config family and writes `artifacts/index-<prefix>.json|md`.
-- `artifacts --kind paper|research|walkforward|batch|daily` narrows the index to one artifact class and can be combined with `--config-hash`.
+- `artifacts --kind paper|research|walkforward|batch|daily|ops` narrows the index to one artifact class and can be combined with `--config-hash`.
 - `artifacts --kind daily --min-escalation attention|critical` keeps only daily artifacts whose escalation level meets that threshold.
 - `artifacts --gate-pass-only` keeps only config groups whose latest research artifact passes the built-in research gates.
 - `artifacts --sort-by generated_at|net_pnl|expectancy` changes how config groups are ranked in the grouped summary.
@@ -82,19 +84,8 @@ Directory ingest notes:
 - `research` now records conservative quality gates and only promotes a rule set to `continue_paper` when those gates pass.
 - `paper` now keeps persistent account and order state in SQLite `paper_state` and resumes from the prior run.
 - `paper` processes newly available bars only logically; it does not open duplicate signals once `lastProcessedSignalTs` has advanced.
-- `paper` writes JSON report artifacts under `artifacts/paper/` by default, including:
-  - matching Markdown summaries for quick human review
-  - current run metrics
-  - cumulative paper metrics
-  - daily realized performance rows
-  - session-level performance rows
-- `research` writes JSON artifacts under `artifacts/research/` by default, including:
-  - matching Markdown summaries for quick human review
-  - fixed acceptance-split metrics
-  - walk-forward OOS summary
-  - parameter sensitivity ranking
-  - event-filter scenario comparison
-  - final recommendation
+- `paper` writes JSON report artifacts under `artifacts/paper/` by default, including matching Markdown summaries, current run metrics, cumulative paper metrics, daily realized performance rows, and session-level performance rows.
+- `research` writes JSON artifacts under `artifacts/research/` by default, including matching Markdown summaries, fixed acceptance-split metrics, walk-forward OOS summary, parameter sensitivity ranking, event-filter scenario comparison, and final recommendation.
 - `walkforward` now also writes a matching Markdown summary next to its JSON artifact.
 - `paper`, `research`, and `walkforward` artifacts all record run provenance: git commit, Node version, DB path, event window count, input mode/path, and source range.
 - `batch` chains `sync-calendars`, optional `ingest`, `paper`, `research`, and `artifacts`, then writes a JSON summary under `artifacts/batch/`.
@@ -109,6 +100,7 @@ Directory ingest notes:
 - `daily` exits `0` for `OK` and `WARN`, and exits non-zero only for `FAIL`.
 - `ops` is a read-only command that prints the same recent operations-history block without running `batch`.
 - `ops --min-escalation attention|critical` appends only the recent runs that meet the requested escalation threshold.
+- `ops-report` writes `artifacts/ops/ops-report-*.json|md` so intervention candidates can be reviewed later without rerunning `daily`.
 - `FAIL` streak counts only trailing `FAIL` runs; non-OK streak counts trailing `WARN` or `FAIL` runs.
 - ingest file history is stored in SQLite `ingestion_files` so daily reruns remain idempotent.
 - `trades` are now tagged with a source so cumulative paper reports only use `PAPER` trades, not backtest inserts.
@@ -125,4 +117,4 @@ CWD: C:\Users\한구원\Desktop\algo_future_trading
 Command: npm run daily -- --db "data/mnq-research.sqlite" --config "config/strategies/session-filtered-trend-pullback-v1.json" --artifacts-dir "artifacts" --input-dir "data/mnq_drop"
 ```
 
-The `daily` summary is the intended automation output. It includes overall status, batch status, failed step, warning codes, ingestion counts, inserted bars, source range, paper new trades, research recommendation, research gate pass, latest artifact paths, and a short operations-history block. Use `ops --min-escalation attention` when you only want the recent intervention-worthy runs.
+The `daily` summary is the intended automation output. It includes overall status, batch status, failed step, warning codes, ingestion counts, inserted bars, source range, paper new trades, research recommendation, research gate pass, latest artifact paths, and a short operations-history block. Use `ops --min-escalation attention` for immediate triage, and `ops-report --min-escalation attention` when you want a saved operational report artifact.

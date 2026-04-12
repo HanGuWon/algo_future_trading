@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { DEFAULT_ARTIFACTS_DIR } from "../config/defaults.js";
 import type {
   BatchRunArtifact,
+  DailyInterventionCandidate,
   DailyEscalationCode,
   DailyEscalationLevel,
   DailyHealthCheckResult,
@@ -487,9 +488,7 @@ export function renderEscalatedDailyRuns(
   runs: DailyRunArtifact[],
   minLevel: DailyEscalationLevel
 ): string[] {
-  const matchingRuns = sortGeneratedAtDesc(runs).filter((run) =>
-    matchesDailyEscalationThreshold(run.historySnapshot?.escalationLevel ?? "NONE", minLevel)
-  );
+  const matchingRuns = buildInterventionCandidates(runs, minLevel);
 
   const lines = ["Escalated runs", `Threshold: ${minLevel}`];
   if (matchingRuns.length === 0) {
@@ -498,8 +497,8 @@ export function renderEscalatedDailyRuns(
   }
 
   for (const run of matchingRuns) {
-    const level = run.historySnapshot?.escalationLevel ?? "NONE";
-    const codes = run.historySnapshot?.escalationCodes ?? [];
+    const level = run.escalationLevel;
+    const codes = run.escalationCodes;
     lines.push(
       `${run.generatedAtUtc} | status=${run.overallStatus} | escalation=${level}${
         codes.length > 0 ? ` (${codes.join(", ")})` : ""
@@ -508,6 +507,26 @@ export function renderEscalatedDailyRuns(
   }
 
   return lines;
+}
+
+export function buildInterventionCandidates(
+  runs: DailyRunArtifact[],
+  minLevel: DailyEscalationLevel
+): DailyInterventionCandidate[] {
+  return sortGeneratedAtDesc(runs)
+    .filter((run) => matchesDailyEscalationThreshold(run.historySnapshot?.escalationLevel ?? "NONE", minLevel))
+    .map((run) => ({
+      generatedAtUtc: run.generatedAtUtc,
+      overallStatus: run.overallStatus,
+      escalationLevel: run.historySnapshot?.escalationLevel ?? "NONE",
+      escalationCodes: run.historySnapshot?.escalationCodes ?? [],
+      warningCodes: run.warningCodes,
+      failedStep: run.failedStep,
+      researchRecommendation: run.researchRecommendation,
+      sourceRange: run.ingestionSummary?.sourceRange ?? run.runProvenance?.sourceRange ?? null,
+      config: run.config,
+      artifactPaths: run.artifactPaths
+    }));
 }
 
 export function renderDailyRunSummary(summary: DailyRunSummary): string[] {

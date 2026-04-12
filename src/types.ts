@@ -632,3 +632,26 @@ export interface DailyRunArtifact extends DailyRunSummary {
   researchGeneratedAtUtc: string | null;
   historySnapshot?: DailyHistorySnapshot;
 }
+
+export interface DailyInterventionCandidate {
+  generatedAtUtc: string;
+  overallStatus: DailyHealthStatus;
+  escalationLevel: DailyEscalationLevel;
+  escalationCodes: DailyEscalationCode[];
+  warningCodes: DailyWarningCode[];
+  failedStep: BatchRunArtifact["failedStep"];
+  researchRecommendation: ResearchReportArtifact["finalAssessment"]["recommendation"] | null;
+  sourceRange: DateRange | null;
+  config: StrategyConfigReference | null;
+  artifactPaths: LatestArtifactPointers;
+}
+
+export interface OperationsReportArtifact {
+  generatedAtUtc: string;
+  artifactsDir: string;
+  windowSize: number;
+  minEscalation: DailyEscalationLevel;
+  summary: DailyOperationsSummary;
+  candidateCount: number;
+  candidates: DailyInterventionCandidate[];
+}
