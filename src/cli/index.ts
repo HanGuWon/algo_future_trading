@@ -34,6 +34,7 @@ import {
 import { writeArtifactIndex } from "../reporting/artifactIndex.js";
 import { writePaperArtifact } from "../reporting/paperArtifacts.js";
 import { writeOpsArtifact } from "../reporting/opsArtifacts.js";
+import { buildOperationsCompareArtifact, writeOperationsCompareArtifact } from "../reporting/opsCompareArtifacts.js";
 import { writeResearchArtifact } from "../reporting/researchArtifacts.js";
 import { writeWalkForwardArtifacts } from "../reporting/walkforwardArtifacts.js";
 import {
@@ -159,6 +160,10 @@ interface OpsCommandResult {
 }
 
 interface OpsReportCommandResult extends OpsCommandResult {
+  artifactPaths: { jsonPath: string; markdownPath: string };
+}
+
+interface OpsCompareCommandResult {
   artifactPaths: { jsonPath: string; markdownPath: string };
 }
 
@@ -572,11 +577,12 @@ async function artifactsCommand(
     rawKind === "walkforward" ||
     rawKind === "batch" ||
     rawKind === "daily" ||
-    rawKind === "ops"
+    rawKind === "ops" ||
+    rawKind === "ops-compare"
       ? (rawKind as ArtifactKind)
       : null;
   if (rawKind && !kind) {
-    throw new Error("artifacts --kind must be one of: paper, research, walkforward, batch, daily, ops");
+    throw new Error("artifacts --kind must be one of: paper, research, walkforward, batch, daily, ops, ops-compare");
   }
   if (minEscalation && kind !== "daily") {
     throw new Error("artifacts --min-escalation requires --kind daily");
@@ -605,6 +611,7 @@ async function artifactsCommand(
   logger.log(`Batch reports: ${result.index.counts.batch}`);
   logger.log(`Daily reports: ${result.index.counts.daily}`);
   logger.log(`Ops reports: ${result.index.counts.ops}`);
+  logger.log(`Ops compare reports: ${result.index.counts["ops-compare"]}`);
   logger.log(`Config profiles shown: ${result.index.byConfigHash.length}`);
   logger.log(`Config profiles total: ${result.index.totalConfigProfiles}`);
   if (result.index.latest.paper) {
@@ -624,6 +631,9 @@ async function artifactsCommand(
   }
   if (result.index.latest.ops) {
     logger.log(`Latest ops: ${result.index.latest.ops.headline}`);
+  }
+  if (result.index.latest["ops-compare"]) {
+    logger.log(`Latest ops-compare: ${result.index.latest["ops-compare"]!.headline}`);
   }
   if (result.index.byConfigHash[0]) {
     logger.log(`Top config group: ${result.index.byConfigHash[0].summary} (${result.index.byConfigHash[0].sha256.slice(0, 12)})`);
@@ -900,6 +910,63 @@ async function opsReportCommand(
   };
 }
 
+async function opsCompareCommand(
+  options: Map<string, string>,
+  logger: Pick<Console, "log"> = console
+): Promise<OpsCompareCommandResult> {
+  const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
+  const rawLimit = options.get("limit");
+  const limit = rawLimit === undefined ? 30 : Number(rawLimit);
+  if (!Number.isInteger(limit) || limit < 0) {
+    throw new Error("ops-compare --limit must be a non-negative integer");
+  }
+  const minEscalation = parseDailyEscalationOption(
+    options.get("min-escalation"),
+    "ops-compare --min-escalation"
+  ) ?? "ATTENTION";
+  const configHashFilter = options.get("config-hash") ?? null;
+
+  const runs = await resolveRecentDailyRunArtifacts(artifactsDir, limit);
+  const artifact = buildOperationsCompareArtifact(runs, {
+    artifactsDir,
+    limit,
+    minEscalation,
+    configHashFilter
+  });
+  const artifactPaths = await writeOperationsCompareArtifact(artifact, artifactsDir);
+
+  logger.log("Operations compare");
+  logger.log(`Scanned runs: ${artifact.scannedRunCount}`);
+  logger.log(`Matched candidates: ${artifact.candidateCount}`);
+  logger.log(`Min escalation: ${artifact.minEscalation}`);
+  logger.log(`Config hash filter: ${artifact.configHashFilter ?? "none"}`);
+  logger.log(
+    `Top config hotspot: ${
+      artifact.topHotspots[0]
+        ? `${artifact.topHotspots[0].summary} (${artifact.topHotspots[0].candidateCount})`
+        : "none"
+    }`
+  );
+  logger.log(
+    `Top warning code: ${
+      artifact.byWarningCode[0]
+        ? `${artifact.byWarningCode[0].code} (${artifact.byWarningCode[0].candidateCount})`
+        : "none"
+    }`
+  );
+  logger.log(
+    `Top failed step: ${
+      artifact.byFailedStep[0]
+        ? `${artifact.byFailedStep[0].failedStep} (${artifact.byFailedStep[0].candidateCount})`
+        : "none"
+    }`
+  );
+  logger.log(`Ops compare artifact JSON: ${artifactPaths.jsonPath}`);
+  logger.log(`Ops compare artifact Markdown: ${artifactPaths.markdownPath}`);
+
+  return { artifactPaths };
+}
+
 export async function runCli(argv: string[], logger: Pick<Console, "log"> = console): Promise<void> {
   const [command = "help", ...rest] = argv;
   const options = parseArgs(rest);
@@ -937,14 +1004,18 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
     case "ops-report":
       await opsReportCommand(options, logger);
       return;
+    case "ops-compare":
+      await opsCompareCommand(options, logger);
+      return;
     default:
-      logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper, batch, daily, ops, ops-report");
+      logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper, batch, daily, ops, ops-report, ops-compare");
       logger.log('ingest options: (--file <csv> | --dir <folder>) [--db path] [--symbol MNQ] [--contract H26]');
-      logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward|batch|daily|ops] [--min-escalation none|attention|critical] [--gate-pass-only] [--sort-by generated_at|net_pnl|expectancy] [--latest-only] [--limit N]');
+      logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward|batch|daily|ops|ops-compare] [--min-escalation none|attention|critical] [--gate-pass-only] [--sort-by generated_at|net_pnl|expectancy] [--latest-only] [--limit N]');
       logger.log('batch options: [--db path] [--config path] [--artifacts-dir path] [--file csv | --input-dir folder] [--contract H26] [--start iso] [--end iso]');
       logger.log('daily options: [--db path] [--config path] [--artifacts-dir path] --input-dir folder [--start iso] [--end iso]');
       logger.log('ops options: [--artifacts-dir path] [--limit N] [--min-escalation none|attention|critical]');
       logger.log('ops-report options: [--artifacts-dir path] [--limit N] [--min-escalation none|attention|critical]');
+      logger.log('ops-compare options: [--artifacts-dir path] [--limit N] [--min-escalation none|attention|critical] [--config-hash prefix]');
       logger.log(`strategy options: [--config ${DEFAULT_STRATEGY_CONFIG_PATH}]`);
   }
 }

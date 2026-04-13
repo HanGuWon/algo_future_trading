@@ -38,6 +38,7 @@ npm run daily -- --db data/mnq-research.sqlite --config config/strategies/sessio
 npm run ops -- --artifacts-dir artifacts
 npm run ops -- --artifacts-dir artifacts --min-escalation attention
 npm run ops-report -- --artifacts-dir artifacts --min-escalation attention
+npm run ops-compare -- --artifacts-dir artifacts --min-escalation attention
 ```
 
 Expected CSV columns:
@@ -72,9 +73,9 @@ Directory ingest notes:
 - The engine uses a back-adjusted research series for 1h features and raw execution bars for fills.
 - `backtest` runs one config once; `walkforward` runs rolling train/validation/test windows and writes JSON artifacts.
 - `artifacts` scans the current artifact directory, builds `artifacts/index.json` and `artifacts/index.md`, and prints the latest paper/research/walk-forward/batch summaries.
-- `artifacts` also groups the latest `paper`, `research`, `walkforward`, `batch`, `daily`, and `ops` outputs by strategy config hash so different parameter profiles can be compared safely.
+- `artifacts` also groups the latest `paper`, `research`, `walkforward`, `batch`, `daily`, `ops`, and `ops-compare` outputs by strategy config hash so different parameter profiles can be compared safely.
 - `artifacts --config-hash <prefix>` narrows the index to one config family and writes `artifacts/index-<prefix>.json|md`.
-- `artifacts --kind paper|research|walkforward|batch|daily|ops` narrows the index to one artifact class and can be combined with `--config-hash`.
+- `artifacts --kind paper|research|walkforward|batch|daily|ops|ops-compare` narrows the index to one artifact class and can be combined with `--config-hash`.
 - `artifacts --kind daily --min-escalation attention|critical` keeps only daily artifacts whose escalation level meets that threshold.
 - `artifacts --gate-pass-only` keeps only config groups whose latest research artifact passes the built-in research gates.
 - `artifacts --sort-by generated_at|net_pnl|expectancy` changes how config groups are ranked in the grouped summary.
@@ -101,6 +102,7 @@ Directory ingest notes:
 - `ops` is a read-only command that prints the same recent operations-history block without running `batch`.
 - `ops --min-escalation attention|critical` appends only the recent runs that meet the requested escalation threshold.
 - `ops-report` writes `artifacts/ops/ops-report-*.json|md` so intervention candidates can be reviewed later without rerunning `daily`.
+- `ops-compare` writes `artifacts/ops/ops-compare-*.json|md` and groups repeated intervention candidates by config, warning code, failed step, and recommendation.
 - `FAIL` streak counts only trailing `FAIL` runs; non-OK streak counts trailing `WARN` or `FAIL` runs.
 - ingest file history is stored in SQLite `ingestion_files` so daily reruns remain idempotent.
 - `trades` are now tagged with a source so cumulative paper reports only use `PAPER` trades, not backtest inserts.
@@ -117,4 +119,4 @@ CWD: C:\Users\한구원\Desktop\algo_future_trading
 Command: npm run daily -- --db "data/mnq-research.sqlite" --config "config/strategies/session-filtered-trend-pullback-v1.json" --artifacts-dir "artifacts" --input-dir "data/mnq_drop"
 ```
 
-The `daily` summary is the intended automation output. It includes overall status, batch status, failed step, warning codes, ingestion counts, inserted bars, source range, paper new trades, research recommendation, research gate pass, latest artifact paths, and a short operations-history block. Use `ops --min-escalation attention` for immediate triage, and `ops-report --min-escalation attention` when you want a saved operational report artifact.
+The `daily` summary is the intended automation output. It includes overall status, batch status, failed step, warning codes, ingestion counts, inserted bars, source range, paper new trades, research recommendation, research gate pass, latest artifact paths, and a short operations-history block. Use `ops --min-escalation attention` for immediate triage, `ops-report --min-escalation attention` for a saved candidate snapshot, and `ops-compare --min-escalation attention` for recurrence analysis.

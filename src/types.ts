@@ -655,3 +655,53 @@ export interface OperationsReportArtifact {
   candidateCount: number;
   candidates: DailyInterventionCandidate[];
 }
+
+export interface OpsCompareConfigSummary {
+  sha256: string;
+  summary: string;
+  path: string;
+  candidateCount: number;
+  lastSeenGeneratedAtUtc: string;
+  statusCounts: Record<DailyHealthStatus, number>;
+  escalationCounts: Record<Exclude<DailyEscalationLevel, "NONE">, number>;
+  topWarningCodes: WarningCodeCount[];
+  latestRecommendation: ResearchReportArtifact["finalAssessment"]["recommendation"] | "n/a";
+  latestFailedStep: BatchRunArtifact["failedStep"] | "none";
+}
+
+export interface OpsCompareWarningSummary {
+  code: DailyWarningCode;
+  candidateCount: number;
+  latestSeenGeneratedAtUtc: string;
+  uniqueConfigCount: number;
+  configs: Array<Pick<StrategyConfigReference, "path" | "sha256" | "summary">>;
+}
+
+export interface OpsCompareFailedStepSummary {
+  failedStep: BatchRunArtifact["failedStep"] | "none";
+  candidateCount: number;
+  latestSeenGeneratedAtUtc: string;
+}
+
+export interface OpsCompareRecommendationSummary {
+  recommendation: ResearchReportArtifact["finalAssessment"]["recommendation"] | "n/a";
+  candidateCount: number;
+  latestSeenGeneratedAtUtc: string;
+}
+
+export interface OperationsCompareArtifact {
+  generatedAtUtc: string;
+  artifactsDir: string;
+  windowSize: number;
+  minEscalation: DailyEscalationLevel;
+  configHashFilter: string | null;
+  scannedRunCount: number;
+  candidateCount: number;
+  statusCounts: Record<DailyHealthStatus, number>;
+  escalationCounts: Record<Exclude<DailyEscalationLevel, "NONE">, number>;
+  byConfig: OpsCompareConfigSummary[];
+  byWarningCode: OpsCompareWarningSummary[];
+  byFailedStep: OpsCompareFailedStepSummary[];
+  byRecommendation: OpsCompareRecommendationSummary[];
+  topHotspots: OpsCompareConfigSummary[];
+}

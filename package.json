@@ -17,7 +17,8 @@
     "batch": "tsx src/cli/index.ts batch",
     "daily": "tsx src/cli/index.ts daily",
     "ops": "tsx src/cli/index.ts ops",
-    "ops-report": "tsx src/cli/index.ts ops-report"
+    "ops-report": "tsx src/cli/index.ts ops-report",
+    "ops-compare": "tsx src/cli/index.ts ops-compare"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",
