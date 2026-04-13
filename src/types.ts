@@ -705,3 +705,80 @@ export interface OperationsCompareArtifact {
   byRecommendation: OpsCompareRecommendationSummary[];
   topHotspots: OpsCompareConfigSummary[];
 }
+
+export interface DashboardLatestArtifactPointers extends LatestArtifactPointers {
+  opsReportJsonPath: string | null;
+  opsCompareJsonPath: string | null;
+}
+
+export interface DashboardManifest {
+  generatedAtUtc: string;
+  publishVersion: string;
+  artifactsDir: string;
+  outDir: string;
+  configSummaries: StrategyConfigReference[];
+  latestArtifacts: DashboardLatestArtifactPointers;
+  sourceRange: DateRange | null;
+}
+
+export interface DashboardOverviewHotspot {
+  sha256: string;
+  summary: string;
+  path: string;
+  candidateCount: number;
+  lastSeenGeneratedAtUtc: string;
+  latestRecommendation: ResearchReportArtifact["finalAssessment"]["recommendation"] | "n/a";
+  latestFailedStep: BatchRunArtifact["failedStep"] | "none";
+  topWarningCodes: WarningCodeCount[];
+}
+
+export interface DashboardOverview {
+  generatedAtUtc: string;
+  latestDailyStatus: DailyHealthStatus | null;
+  latestEscalationLevel: DailyEscalationLevel;
+  latestWarningCodes: DailyWarningCode[];
+  failStreak: number;
+  nonOkStreak: number;
+  latestPaperNewTrades: number | null;
+  researchRecommendation: ResearchReportArtifact["finalAssessment"]["recommendation"] | null;
+  researchGatePass: boolean | null;
+  topHotspot: DashboardOverviewHotspot | null;
+  sourceRange: DateRange | null;
+}
+
+export interface DashboardDailyRunRow {
+  generatedAtUtc: string;
+  overallStatus: DailyHealthStatus;
+  escalationLevel: DailyEscalationLevel;
+  warningCodes: DailyWarningCode[];
+  failedStep: BatchRunArtifact["failedStep"];
+  paperNewTrades: number | null;
+  researchRecommendation: ResearchReportArtifact["finalAssessment"]["recommendation"] | null;
+  researchGatePass: boolean | null;
+  config: StrategyConfigReference | null;
+  sourceRange: DateRange | null;
+  dailyJsonPath: string | null;
+}
+
+export interface DashboardHotspotSummary {
+  generatedAtUtc: string;
+  scannedRunCount: number;
+  candidateCount: number;
+  minEscalation: DailyEscalationLevel;
+  byConfig: OpsCompareConfigSummary[];
+  byWarningCode: OpsCompareWarningSummary[];
+  byFailedStep: OpsCompareFailedStepSummary[];
+  byRecommendation: OpsCompareRecommendationSummary[];
+  topHotspots: OpsCompareConfigSummary[];
+}
+
+export interface DashboardResearchSnapshot {
+  generatedAtUtc: string | null;
+  config: StrategyConfigReference | null;
+  baselineTestExpectancyUsd: number | null;
+  walkforwardOosExpectancyUsd: number | null;
+  gatePass: boolean | null;
+  recommendation: ResearchReportArtifact["finalAssessment"]["recommendation"] | null;
+  selectedWindowCount: number | null;
+  windowCount: number | null;
+}

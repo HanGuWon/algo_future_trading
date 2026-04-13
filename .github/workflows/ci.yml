@@ -27,3 +27,11 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Install dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Build dashboard
+        working-directory: dashboard
+        run: npm run build

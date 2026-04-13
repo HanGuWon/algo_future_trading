@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { buildDailyAutomationSpec } from "../automation/dailyAutomation.js";
 import { BacktestEngine } from "../backtest/engine.js";
 import { OfficialCalendarProvider } from "../calendars/officialCalendarProvider.js";
@@ -32,6 +32,7 @@ import {
   resolveLatestDailyArtifacts
 } from "../reporting/dailyRun.js";
 import { writeArtifactIndex } from "../reporting/artifactIndex.js";
+import { buildDashboardPublishBundle, writeDashboardPublishBundle } from "../reporting/dashboardPublish.js";
 import { writePaperArtifact } from "../reporting/paperArtifacts.js";
 import { writeOpsArtifact } from "../reporting/opsArtifacts.js";
 import { buildOperationsCompareArtifact, writeOperationsCompareArtifact } from "../reporting/opsCompareArtifacts.js";
@@ -165,6 +166,16 @@ interface OpsReportCommandResult extends OpsCommandResult {
 
 interface OpsCompareCommandResult {
   artifactPaths: { jsonPath: string; markdownPath: string };
+}
+
+interface PublishDashboardCommandResult {
+  paths: {
+    manifestPath: string;
+    overviewPath: string;
+    dailyRunsPath: string;
+    hotspotsPath: string;
+    researchPath: string;
+  };
 }
 
 function rangeFromOptionalBounds(startUtc?: string | null, endUtc?: string | null): DateRange | null {
@@ -967,6 +978,71 @@ async function opsCompareCommand(
   return { artifactPaths };
 }
 
+async function publishDashboardCommand(
+  options: Map<string, string>,
+  logger: Pick<Console, "log"> = console
+): Promise<PublishDashboardCommandResult> {
+  const artifactsDir = options.get("artifacts-dir") ?? DEFAULT_ARTIFACTS_DIR;
+  const outDir = options.get("out") ?? join("dashboard", "public", "data");
+  const bundle = await buildDashboardPublishBundle(artifactsDir, outDir);
+  const paths = await writeDashboardPublishBundle(bundle, outDir);
+
+  logger.log("Dashboard publish");
+  logger.log(`Artifacts dir: ${artifactsDir}`);
+  logger.log(`Output dir: ${outDir}`);
+  logger.log(`Latest daily status: ${bundle.overview.latestDailyStatus ?? "n/a"}`);
+  logger.log(`Research recommendation: ${bundle.overview.researchRecommendation ?? "n/a"}`);
+  logger.log(
+    `Top hotspot: ${
+      bundle.overview.topHotspot
+        ? `${bundle.overview.topHotspot.summary} (${bundle.overview.topHotspot.candidateCount})`
+        : "none"
+    }`
+  );
+  logger.log(`Manifest JSON: ${paths.manifestPath}`);
+  logger.log(`Overview JSON: ${paths.overviewPath}`);
+  logger.log(`Daily runs JSON: ${paths.dailyRunsPath}`);
+  logger.log(`Hotspots JSON: ${paths.hotspotsPath}`);
+  logger.log(`Research JSON: ${paths.researchPath}`);
+
+  return { paths };
+}
+
+async function cloudDailyCommand(
+  options: Map<string, string>,
+  logger: Pick<Console, "log"> = console
+): Promise<void> {
+  const dashboardOut = options.get("dashboard-out") ?? join("dashboard", "public", "data");
+  let dailyError: Error | null = null;
+
+  try {
+    await dailyCommand(options, logger);
+  } catch (error) {
+    dailyError = error instanceof Error ? error : new Error(String(error));
+  }
+
+  const opsOptions = new Map(options);
+  if (!opsOptions.has("min-escalation")) {
+    opsOptions.set("min-escalation", "attention");
+  }
+  const publishOptions = new Map(options);
+  publishOptions.set("out", dashboardOut);
+
+  const opsReportResult = await opsReportCommand(opsOptions, logger);
+  const opsCompareResult = await opsCompareCommand(opsOptions, logger);
+  const publishResult = await publishDashboardCommand(publishOptions, logger);
+
+  logger.log("Cloud daily summary");
+  logger.log(`Ops report JSON: ${opsReportResult.artifactPaths.jsonPath}`);
+  logger.log(`Ops compare JSON: ${opsCompareResult.artifactPaths.jsonPath}`);
+  logger.log(`Dashboard manifest JSON: ${publishResult.paths.manifestPath}`);
+  logger.log(`Dashboard output dir: ${dashboardOut}`);
+
+  if (dailyError) {
+    throw dailyError;
+  }
+}
+
 export async function runCli(argv: string[], logger: Pick<Console, "log"> = console): Promise<void> {
   const [command = "help", ...rest] = argv;
   const options = parseArgs(rest);
@@ -1007,8 +1083,14 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
     case "ops-compare":
       await opsCompareCommand(options, logger);
       return;
+    case "publish-dashboard":
+      await publishDashboardCommand(options, logger);
+      return;
+    case "cloud-daily":
+      await cloudDailyCommand(options, logger);
+      return;
     default:
-      logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper, batch, daily, ops, ops-report, ops-compare");
+      logger.log("Commands: ingest, sync-calendars, backtest, walkforward, artifacts, research, paper, batch, daily, ops, ops-report, ops-compare, publish-dashboard, cloud-daily");
       logger.log('ingest options: (--file <csv> | --dir <folder>) [--db path] [--symbol MNQ] [--contract H26]');
       logger.log('artifacts options: [--artifacts-dir path] [--config-hash prefix] [--kind paper|research|walkforward|batch|daily|ops|ops-compare] [--min-escalation none|attention|critical] [--gate-pass-only] [--sort-by generated_at|net_pnl|expectancy] [--latest-only] [--limit N]');
       logger.log('batch options: [--db path] [--config path] [--artifacts-dir path] [--file csv | --input-dir folder] [--contract H26] [--start iso] [--end iso]');
@@ -1016,6 +1098,8 @@ export async function runCli(argv: string[], logger: Pick<Console, "log"> = cons
       logger.log('ops options: [--artifacts-dir path] [--limit N] [--min-escalation none|attention|critical]');
       logger.log('ops-report options: [--artifacts-dir path] [--limit N] [--min-escalation none|attention|critical]');
       logger.log('ops-compare options: [--artifacts-dir path] [--limit N] [--min-escalation none|attention|critical] [--config-hash prefix]');
+      logger.log('publish-dashboard options: [--artifacts-dir path] [--out dashboard/public/data]');
+      logger.log('cloud-daily options: [--db path] [--config path] [--artifacts-dir path] --input-dir folder [--start iso] [--end iso] [--dashboard-out path]');
       logger.log(`strategy options: [--config ${DEFAULT_STRATEGY_CONFIG_PATH}]`);
   }
 }

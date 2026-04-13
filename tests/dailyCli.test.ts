@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+﻿import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -612,10 +612,11 @@ describe("daily CLI", () => {
       cwd: "C:\\Users\\한구원\\Desktop\\algo_future_trading"
     });
 
-    expect(spec.name).toBe("MNQ Daily Run");
+    expect(spec.name).toBe("MNQ Cloud Daily Run");
     expect(spec.scheduleLabel).toBe("Every day at 06:00 Asia/Seoul");
     expect(spec.cwd).toBe("C:\\Users\\한구원\\Desktop\\algo_future_trading");
-    expect(spec.command).toContain('npm run daily --');
+    expect(spec.command).toContain('npm run cloud-daily --');
     expect(spec.command).toContain('--input-dir "data/mnq_drop"');
   });
 });
+

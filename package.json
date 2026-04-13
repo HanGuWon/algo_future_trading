@@ -18,7 +18,10 @@
     "daily": "tsx src/cli/index.ts daily",
     "ops": "tsx src/cli/index.ts ops",
     "ops-report": "tsx src/cli/index.ts ops-report",
-    "ops-compare": "tsx src/cli/index.ts ops-compare"
+    "ops-compare": "tsx src/cli/index.ts ops-compare",
+    "publish-dashboard": "tsx src/cli/index.ts publish-dashboard",
+    "cloud-daily": "tsx src/cli/index.ts cloud-daily",
+    "dashboard:build": "npm --prefix dashboard run build"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",

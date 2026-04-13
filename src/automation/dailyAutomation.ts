@@ -19,7 +19,7 @@ export interface DailyAutomationSpec {
 
 export function buildDailyAutomationCommand(options: Omit<BuildDailyAutomationSpecOptions, "cwd">): string {
   const parts = [
-    "npm run daily --",
+    "npm run cloud-daily --",
     `--db "${options.dbPath}"`,
     `--config "${options.configPath}"`,
     `--artifacts-dir "${options.artifactsDir}"`,
@@ -36,7 +36,7 @@ export function buildDailyAutomationCommand(options: Omit<BuildDailyAutomationSp
 
 export function buildDailyAutomationSpec(options: BuildDailyAutomationSpecOptions): DailyAutomationSpec {
   return {
-    name: "MNQ Daily Run",
+    name: "MNQ Cloud Daily Run",
     scheduleLabel: "Every day at 06:00 Asia/Seoul",
     cwd: resolve(options.cwd ?? process.cwd()),
     command: buildDailyAutomationCommand(options)

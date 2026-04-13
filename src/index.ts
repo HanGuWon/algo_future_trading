@@ -10,6 +10,7 @@ export * from "./features/sessionState.js";
 export * from "./paper/paperBroker.js";
 export * from "./paper/paperEngine.js";
 export * from "./reporting/artifactIndex.js";
+export * from "./reporting/dashboardPublish.js";
 export * from "./reporting/paperArtifacts.js";
 export * from "./reporting/researchArtifacts.js";
 export * from "./reporting/walkforwardArtifacts.js";

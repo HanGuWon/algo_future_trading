@@ -1,4 +1,4 @@
-# MNQ Research / Paper Bot
+﻿# MNQ Research / Paper Bot
 
 [![CI](https://github.com/HanGuWon/algo_future_trading/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/HanGuWon/algo_future_trading/actions/workflows/ci.yml)
 
@@ -39,6 +39,9 @@ npm run ops -- --artifacts-dir artifacts
 npm run ops -- --artifacts-dir artifacts --min-escalation attention
 npm run ops-report -- --artifacts-dir artifacts --min-escalation attention
 npm run ops-compare -- --artifacts-dir artifacts --min-escalation attention
+npm run publish-dashboard -- --artifacts-dir artifacts --out dashboard/public/data
+npm run cloud-daily -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts --input-dir data/mnq_drop
+npm run dashboard:build
 ```
 
 Expected CSV columns:
@@ -103,20 +106,46 @@ Directory ingest notes:
 - `ops --min-escalation attention|critical` appends only the recent runs that meet the requested escalation threshold.
 - `ops-report` writes `artifacts/ops/ops-report-*.json|md` so intervention candidates can be reviewed later without rerunning `daily`.
 - `ops-compare` writes `artifacts/ops/ops-compare-*.json|md` and groups repeated intervention candidates by config, warning code, failed step, and recommendation.
+- `publish-dashboard` writes normalized UI snapshot files to `dashboard/public/data/`: `manifest.json`, `overview.json`, `daily-runs.json`, `hotspots.json`, and `research.json`.
+- `cloud-daily` chains `daily -> ops-report -> ops-compare -> publish-dashboard` so one local command can refresh the cloud dashboard snapshot.
+- the `dashboard/` app is a static Vite frontend for Cloudflare Pages. It reads only `/data/*.json`; it does not read SQLite or raw CSV in the cloud.
 - `FAIL` streak counts only trailing `FAIL` runs; non-OK streak counts trailing `WARN` or `FAIL` runs.
 - ingest file history is stored in SQLite `ingestion_files` so daily reruns remain idempotent.
 - `trades` are now tagged with a source so cumulative paper reports only use `PAPER` trades, not backtest inserts.
 - Walk-forward artifacts are written under `artifacts/` by default and are ignored by git.
+
+## Cloudflare Pages
+
+Recommended free-tier deployment path:
+
+1. Run `npm run cloud-daily -- --db "data/mnq-research.sqlite" --config "config/strategies/session-filtered-trend-pullback-v1.json" --artifacts-dir "artifacts" --input-dir "data/mnq_drop"`.
+2. Review the generated `dashboard/public/data/*.json` snapshot.
+3. Commit and push the updated dashboard snapshot.
+4. Let Cloudflare Pages build the `dashboard/` app from GitHub.
+
+Pages project settings:
+
+- Build root: `dashboard`
+- Build command: `npm run build`
+- Build output directory: `dist`
+- Functions directory: `dashboard/functions`
+
+Private-first runbook:
+
+- protect the Pages project with Cloudflare Access before treating the dashboard as operational
+- allow only your own identity/email at first
+- treat any deployment without Access as public exposure of internal operational state
 
 ## Codex Automation
 
 Recommended local automation target:
 
 ```text
-Name: MNQ Daily Run
+Name: MNQ Cloud Daily Run
 Schedule: Every day at 06:00 Asia/Seoul
 CWD: C:\Users\한구원\Desktop\algo_future_trading
-Command: npm run daily -- --db "data/mnq-research.sqlite" --config "config/strategies/session-filtered-trend-pullback-v1.json" --artifacts-dir "artifacts" --input-dir "data/mnq_drop"
+Command: npm run cloud-daily -- --db "data/mnq-research.sqlite" --config "config/strategies/session-filtered-trend-pullback-v1.json" --artifacts-dir "artifacts" --input-dir "data/mnq_drop"
 ```
 
-The `daily` summary is the intended automation output. It includes overall status, batch status, failed step, warning codes, ingestion counts, inserted bars, source range, paper new trades, research recommendation, research gate pass, latest artifact paths, and a short operations-history block. Use `ops --min-escalation attention` for immediate triage, `ops-report --min-escalation attention` for a saved candidate snapshot, and `ops-compare --min-escalation attention` for recurrence analysis.
+The `cloud-daily` summary is the intended automation output. It includes the `daily` operational summary, writes fresh `ops-report` and `ops-compare` artifacts, and publishes `dashboard/public/data/*.json` for Cloudflare Pages. Use `ops --min-escalation attention` for immediate triage, `ops-report --min-escalation attention` for a saved candidate snapshot, and `ops-compare --min-escalation attention` for recurrence analysis.
+
