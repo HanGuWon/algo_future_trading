@@ -1,0 +1,26 @@
+{
+  "generatedAtUtc": "2026-04-13T14:22:54.104Z",
+  "publishVersion": "0.1.0",
+  "artifactsDir": "artifacts",
+  "outDir": "dashboard/public/data",
+  "configSummaries": [
+    {
+      "path": "config/strategies/session-filtered-trend-pullback-v1.json",
+      "sha256": "67d07930a465828bc6464d19e24241cac293d934c8d449e6682b04c9d9ad9bbd",
+      "summary": "fast=20 slow=120 score=3 postEvent=60"
+    }
+  ],
+  "latestArtifacts": {
+    "batchJsonPath": "artifacts/batch/batch-run-2026-04-13T14-14-54-907Z.json",
+    "paperJsonPath": "artifacts/paper/paper-report-2026-04-13T14-14-57-879Z.json",
+    "researchJsonPath": "artifacts/research/research-report-2026-04-13T14-20-47-606Z.json",
+    "dailyJsonPath": "artifacts/daily/daily-run-2026-04-13T14-20-47-688Z.json",
+    "dailyMarkdownPath": "artifacts/daily/daily-run-2026-04-13T14-20-47-688Z.md",
+    "opsReportJsonPath": "artifacts/ops/ops-report-2026-04-13T14-20-47-698Z.json",
+    "opsCompareJsonPath": "artifacts/ops/ops-compare-2026-04-13T14-20-47-703Z.json"
+  },
+  "sourceRange": {
+    "startUtc": "2018-01-01T00:00:00.000Z",
+    "endUtc": "2026-04-16T23:59:00.000Z"
+  }
+}

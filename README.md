@@ -42,6 +42,7 @@ npm run ops-compare -- --artifacts-dir artifacts --min-escalation attention
 npm run publish-dashboard -- --artifacts-dir artifacts --out dashboard/public/data
 npm run cloud-daily -- --db data/mnq-research.sqlite --config config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir artifacts --input-dir data/mnq_drop
 npm run dashboard:build
+npm run bootstrap:data
 ```
 
 Expected CSV columns:
@@ -108,7 +109,9 @@ Directory ingest notes:
 - `ops-compare` writes `artifacts/ops/ops-compare-*.json|md` and groups repeated intervention candidates by config, warning code, failed step, and recommendation.
 - `publish-dashboard` writes normalized UI snapshot files to `dashboard/public/data/`: `manifest.json`, `overview.json`, `daily-runs.json`, `hotspots.json`, and `research.json`.
 - `cloud-daily` chains `daily -> ops-report -> ops-compare -> publish-dashboard` so one local command can refresh the cloud dashboard snapshot.
+- `bootstrap:data` writes a synthetic MNQ CSV into `data/mnq_drop/` so the full pipeline can be exercised before real market data is available.
 - the `dashboard/` app is a static Vite frontend for Cloudflare Pages. It reads only `/data/*.json`; it does not read SQLite or raw CSV in the cloud.
+- On Windows with `npm run`, prefer `--key=value` syntax for runtime flags such as `--db=data/mnq-research.sqlite`.
 - `FAIL` streak counts only trailing `FAIL` runs; non-OK streak counts trailing `WARN` or `FAIL` runs.
 - ingest file history is stored in SQLite `ingestion_files` so daily reruns remain idempotent.
 - `trades` are now tagged with a source so cumulative paper reports only use `PAPER` trades, not backtest inserts.
@@ -118,10 +121,17 @@ Directory ingest notes:
 
 Recommended free-tier deployment path:
 
-1. Run `npm run cloud-daily -- --db "data/mnq-research.sqlite" --config "config/strategies/session-filtered-trend-pullback-v1.json" --artifacts-dir "artifacts" --input-dir "data/mnq_drop"`.
-2. Review the generated `dashboard/public/data/*.json` snapshot.
-3. Commit and push the updated dashboard snapshot.
-4. Let Cloudflare Pages build the `dashboard/` app from GitHub.
+1. If no real CSV is available yet, run `npm run bootstrap:data` once to create a bootstrap MNQ drop file.
+2. Run `npm run cloud-daily -- --db=data/mnq-research.sqlite --config=config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir=artifacts --input-dir=data/mnq_drop`.
+3. Review the generated `dashboard/public/data/*.json` snapshot.
+4. Commit and push the updated dashboard snapshot.
+5. Let Cloudflare Pages build the `dashboard/` app from GitHub.
+
+Bootstrap note:
+
+- the generated bootstrap CSV is synthetic and intended only to prove the pipeline and dashboard path
+- the resulting first snapshot will typically show `research_more` and a `FAIL` daily health status because it is not real market history
+- replace the bootstrap CSV with real MNQ 1m drops before treating the dashboard as operational
 
 Pages project settings:
 
@@ -129,11 +139,13 @@ Pages project settings:
 - Build command: `npm run build`
 - Build output directory: `dist`
 - Functions directory: `dashboard/functions`
+- Recommended Pages project name: `mnq-ops-dashboard`
+- Expected default Pages domain if that name is available: `https://mnq-ops-dashboard.pages.dev`
 
 Private-first runbook:
 
 - protect the Pages project with Cloudflare Access before treating the dashboard as operational
-- allow only your own identity/email at first
+- allow only your own identity/email at first, for example `your-email@example.com`
 - treat any deployment without Access as public exposure of internal operational state
 
 ## Codex Automation
@@ -144,7 +156,8 @@ Recommended local automation target:
 Name: MNQ Cloud Daily Run
 Schedule: Every day at 06:00 Asia/Seoul
 CWD: C:\Users\한구원\Desktop\algo_future_trading
-Command: npm run cloud-daily -- --db "data/mnq-research.sqlite" --config "config/strategies/session-filtered-trend-pullback-v1.json" --artifacts-dir "artifacts" --input-dir "data/mnq_drop"
+Command: npm run cloud-daily -- --db=data/mnq-research.sqlite --config=config/strategies/session-filtered-trend-pullback-v1.json --artifacts-dir=artifacts --input-dir=data/mnq_drop
+Health endpoint after deployment: https://mnq-ops-dashboard.pages.dev/api/health
 ```
 
 The `cloud-daily` summary is the intended automation output. It includes the `daily` operational summary, writes fresh `ops-report` and `ops-compare` artifacts, and publishes `dashboard/public/data/*.json` for Cloudflare Pages. Use `ops --min-escalation attention` for immediate triage, `ops-report --min-escalation attention` for a saved candidate snapshot, and `ops-compare --min-escalation attention` for recurrence analysis.

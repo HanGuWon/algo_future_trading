@@ -1,5 +1,5 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { DEFAULT_ARTIFACTS_DIR } from "../config/defaults.js";
 import type {
   DashboardDailyRunRow,
@@ -52,6 +52,27 @@ async function readJsonIfExists<T>(path: string | null): Promise<T | null> {
   }
 }
 
+function toPublishedPath(path: string | null): string | null {
+  if (!path) {
+    return null;
+  }
+  const repoRelativeMatch = path.match(/[\\/]algo_future_trading[\\/](.+)$/);
+  const normalized =
+    repoRelativeMatch?.[1] ??
+    (isAbsolute(path) ? relative(process.cwd(), path) : path);
+  return normalized.replace(/\\/g, "/");
+}
+
+function toPublishedConfig(config: StrategyConfigReference | null): StrategyConfigReference | null {
+  if (!config) {
+    return null;
+  }
+  return {
+    ...config,
+    path: toPublishedPath(config.path) ?? config.path
+  };
+}
+
 function latestByName(files: string[]): string | null {
   const sorted = [...files].sort((left, right) => right.localeCompare(left));
   return sorted[0] ?? null;
@@ -91,15 +112,15 @@ function collectConfigSummaries(
   const configs = new Map<string, StrategyConfigReference>();
   for (const run of dailyRuns) {
     if (run.config) {
-      configs.set(run.config.sha256, run.config);
+      configs.set(run.config.sha256, toPublishedConfig(run.config)!);
     }
   }
   if (researchArtifact?.config) {
-    configs.set(researchArtifact.config.sha256, researchArtifact.config);
+    configs.set(researchArtifact.config.sha256, toPublishedConfig(researchArtifact.config)!);
   }
   for (const hotspot of hotspotsArtifact?.byConfig ?? []) {
     configs.set(hotspot.sha256, {
-      path: hotspot.path,
+      path: toPublishedPath(hotspot.path) ?? hotspot.path,
       sha256: hotspot.sha256,
       summary: hotspot.summary
     });
@@ -114,7 +135,7 @@ function toOverviewHotspot(hotspot: OperationsCompareArtifact["topHotspots"][num
   return {
     sha256: hotspot.sha256,
     summary: hotspot.summary,
-    path: hotspot.path,
+    path: toPublishedPath(hotspot.path) ?? hotspot.path,
     candidateCount: hotspot.candidateCount,
     lastSeenGeneratedAtUtc: hotspot.lastSeenGeneratedAtUtc,
     latestRecommendation: hotspot.latestRecommendation,
@@ -133,9 +154,9 @@ function toDailyRunRow(run: DailyRunArtifact): DashboardDailyRunRow {
     paperNewTrades: run.paperNewTrades,
     researchRecommendation: run.researchRecommendation,
     researchGatePass: run.researchGatePass,
-    config: run.config,
+    config: toPublishedConfig(run.config),
     sourceRange: run.ingestionSummary?.sourceRange ?? run.runProvenance?.sourceRange ?? null,
-    dailyJsonPath: run.artifactPaths.dailyJsonPath
+    dailyJsonPath: toPublishedPath(run.artifactPaths.dailyJsonPath)
   };
 }
 
@@ -155,7 +176,7 @@ function buildResearchSnapshot(artifact: ResearchReportArtifact | null): Dashboa
 
   return {
     generatedAtUtc: artifact.generatedAtUtc,
-    config: artifact.config ?? null,
+    config: toPublishedConfig(artifact.config ?? null),
     baselineTestExpectancyUsd: artifact.baseline.test.metrics.expectancyUsd,
     walkforwardOosExpectancyUsd: artifact.walkforward.rolledUpMetrics.expectancyUsd,
     gatePass: artifact.finalAssessment.gatePass,
@@ -171,11 +192,19 @@ function buildHotspotSummary(artifact: OperationsCompareArtifact | null): Dashbo
     scannedRunCount: artifact?.scannedRunCount ?? 0,
     candidateCount: artifact?.candidateCount ?? 0,
     minEscalation: artifact?.minEscalation ?? "ATTENTION",
-    byConfig: artifact?.byConfig ?? [],
+    byConfig:
+      artifact?.byConfig.map((item) => ({
+        ...item,
+        path: toPublishedPath(item.path) ?? item.path
+      })) ?? [],
     byWarningCode: artifact?.byWarningCode ?? [],
     byFailedStep: artifact?.byFailedStep ?? [],
     byRecommendation: artifact?.byRecommendation ?? [],
-    topHotspots: artifact?.topHotspots ?? []
+    topHotspots:
+      artifact?.topHotspots.map((item) => ({
+        ...item,
+        path: toPublishedPath(item.path) ?? item.path
+      })) ?? []
   };
 }
 
@@ -199,11 +228,13 @@ export async function buildDashboardPublishBundle(
     null;
 
   const latestArtifacts: DashboardLatestArtifactPointers = {
-    ...latestDailyArtifacts.pointers,
-    dailyJsonPath: latestDaily?.artifactPaths.dailyJsonPath ?? null,
-    dailyMarkdownPath: latestDaily?.artifactPaths.dailyMarkdownPath ?? null,
-    opsReportJsonPath: latestOpsArtifacts.opsReportJsonPath,
-    opsCompareJsonPath: latestOpsArtifacts.opsCompareJsonPath
+    batchJsonPath: toPublishedPath(latestDailyArtifacts.pointers.batchJsonPath),
+    paperJsonPath: toPublishedPath(latestDailyArtifacts.pointers.paperJsonPath),
+    researchJsonPath: toPublishedPath(latestDailyArtifacts.pointers.researchJsonPath),
+    dailyJsonPath: toPublishedPath(latestDaily?.artifactPaths.dailyJsonPath ?? null),
+    dailyMarkdownPath: toPublishedPath(latestDaily?.artifactPaths.dailyMarkdownPath ?? null),
+    opsReportJsonPath: toPublishedPath(latestOpsArtifacts.opsReportJsonPath),
+    opsCompareJsonPath: toPublishedPath(latestOpsArtifacts.opsCompareJsonPath)
   };
 
   const hotspots = buildHotspotSummary(latestOpsArtifacts.opsCompareArtifact);
@@ -217,8 +248,8 @@ export async function buildDashboardPublishBundle(
   const manifest: DashboardManifest = {
     generatedAtUtc: new Date().toISOString(),
     publishVersion: "0.1.0",
-    artifactsDir: resolve(artifactsDir),
-    outDir: resolve(outDir),
+    artifactsDir: toPublishedPath(resolve(artifactsDir)) ?? artifactsDir,
+    outDir: toPublishedPath(resolve(outDir)) ?? outDir,
     configSummaries,
     latestArtifacts,
     sourceRange

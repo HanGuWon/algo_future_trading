@@ -21,7 +21,8 @@
     "ops-compare": "tsx src/cli/index.ts ops-compare",
     "publish-dashboard": "tsx src/cli/index.ts publish-dashboard",
     "cloud-daily": "tsx src/cli/index.ts cloud-daily",
-    "dashboard:build": "npm --prefix dashboard run build"
+    "dashboard:build": "npm --prefix dashboard run build",
+    "bootstrap:data": "node scripts/generate-bootstrap-sample.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",

@@ -6,3 +6,4 @@ artifacts/
 *.db
 coverage/
 .DS_Store
+data/mnq_drop/*.csv

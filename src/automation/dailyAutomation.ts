@@ -20,16 +20,16 @@ export interface DailyAutomationSpec {
 export function buildDailyAutomationCommand(options: Omit<BuildDailyAutomationSpecOptions, "cwd">): string {
   const parts = [
     "npm run cloud-daily --",
-    `--db "${options.dbPath}"`,
-    `--config "${options.configPath}"`,
-    `--artifacts-dir "${options.artifactsDir}"`,
-    `--input-dir "${options.inputDir}"`
+    `--db="${options.dbPath}"`,
+    `--config="${options.configPath}"`,
+    `--artifacts-dir="${options.artifactsDir}"`,
+    `--input-dir="${options.inputDir}"`
   ];
   if (options.startUtc) {
-    parts.push(`--start "${options.startUtc}"`);
+    parts.push(`--start="${options.startUtc}"`);
   }
   if (options.endUtc) {
-    parts.push(`--end "${options.endUtc}"`);
+    parts.push(`--end="${options.endUtc}"`);
   }
   return parts.join(" ");
 }

@@ -1,0 +1,42 @@
+{
+  "generatedAtUtc": "2026-04-13T14:22:54.104Z",
+  "latestDailyStatus": "FAIL",
+  "latestEscalationLevel": "CRITICAL",
+  "latestWarningCodes": [
+    "RESEARCH_GATE_FAILED",
+    "NO_NEW_PAPER_TRADES",
+    "RESEARCH_MORE"
+  ],
+  "failStreak": 1,
+  "nonOkStreak": 1,
+  "latestPaperNewTrades": 0,
+  "researchRecommendation": "research_more",
+  "researchGatePass": false,
+  "topHotspot": {
+    "sha256": "67d07930a465828bc6464d19e24241cac293d934c8d449e6682b04c9d9ad9bbd",
+    "summary": "fast=20 slow=120 score=3 postEvent=60",
+    "path": "config/strategies/session-filtered-trend-pullback-v1.json",
+    "candidateCount": 1,
+    "lastSeenGeneratedAtUtc": "2026-04-13T14:20:47.688Z",
+    "latestRecommendation": "research_more",
+    "latestFailedStep": "none",
+    "topWarningCodes": [
+      {
+        "code": "NO_NEW_PAPER_TRADES",
+        "count": 1
+      },
+      {
+        "code": "RESEARCH_GATE_FAILED",
+        "count": 1
+      },
+      {
+        "code": "RESEARCH_MORE",
+        "count": 1
+      }
+    ]
+  },
+  "sourceRange": {
+    "startUtc": "2018-01-01T00:00:00.000Z",
+    "endUtc": "2026-04-16T23:59:00.000Z"
+  }
+}

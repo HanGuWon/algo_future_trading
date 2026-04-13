@@ -1,0 +1,14 @@
+{
+  "generatedAtUtc": "2026-04-13T14:20:47.606Z",
+  "config": {
+    "path": "config/strategies/session-filtered-trend-pullback-v1.json",
+    "sha256": "67d07930a465828bc6464d19e24241cac293d934c8d449e6682b04c9d9ad9bbd",
+    "summary": "fast=20 slow=120 score=3 postEvent=60"
+  },
+  "baselineTestExpectancyUsd": 0,
+  "walkforwardOosExpectancyUsd": 46.22,
+  "gatePass": false,
+  "recommendation": "research_more",
+  "selectedWindowCount": 11,
+  "windowCount": 11
+}

@@ -89,10 +89,16 @@ export function parseArgs(argv: string[]): Map<string, string> {
     if (!token.startsWith("--")) {
       continue;
     }
-    const key = token.slice(2);
-    const value = argv[index + 1] && !argv[index + 1].startsWith("--") ? argv[index + 1] : "true";
+    const equalsIndex = token.indexOf("=");
+    const key = equalsIndex >= 0 ? token.slice(2, equalsIndex) : token.slice(2);
+    const value =
+      equalsIndex >= 0
+        ? token.slice(equalsIndex + 1)
+        : argv[index + 1] && !argv[index + 1].startsWith("--")
+          ? argv[index + 1]
+          : "true";
     options.set(key, value);
-    if (value !== "true") {
+    if (equalsIndex < 0 && value !== "true") {
       index += 1;
     }
   }

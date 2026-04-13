@@ -546,11 +546,16 @@ describe("dashboard publish", () => {
 
     expect(bundle.manifest.configSummaries).toHaveLength(1);
     expect(bundle.manifest.latestArtifacts.opsCompareJsonPath).toContain("ops-compare");
+    expect(bundle.manifest.artifactsDir).toContain("dashboard-publish-");
+    expect(bundle.manifest.outDir).toContain("publish");
+    expect(bundle.manifest.configSummaries[0]?.path).toBe("config/strategies/session-filtered-trend-pullback-v1.json");
     expect(bundle.overview.latestDailyStatus).toBe("WARN");
     expect(bundle.overview.latestEscalationLevel).toBe("ATTENTION");
     expect(bundle.overview.topHotspot?.summary).toBe("default-profile");
+    expect(bundle.overview.topHotspot?.path).toBe("config/strategies/session-filtered-trend-pullback-v1.json");
     expect(bundle.dailyRuns).toHaveLength(1);
     expect(bundle.dailyRuns[0]?.warningCodes).toContain("NO_NEW_FILES");
+    expect(bundle.dailyRuns[0]?.dailyJsonPath).toContain("daily/daily-run-");
     expect(bundle.hotspots.topHotspots[0]?.candidateCount).toBe(2);
     expect(bundle.research.recommendation).toBe("continue_paper");
     expect(bundle.research.walkforwardOosExpectancyUsd).toBe(7);

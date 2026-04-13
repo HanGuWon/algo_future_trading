@@ -616,7 +616,7 @@ describe("daily CLI", () => {
     expect(spec.scheduleLabel).toBe("Every day at 06:00 Asia/Seoul");
     expect(spec.cwd).toBe("C:\\Users\\한구원\\Desktop\\algo_future_trading");
     expect(spec.command).toContain('npm run cloud-daily --');
-    expect(spec.command).toContain('--input-dir "data/mnq_drop"');
+    expect(spec.command).toContain('--input-dir="data/mnq_drop"');
   });
 });
 

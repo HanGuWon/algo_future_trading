@@ -97,20 +97,26 @@ export class SqliteStore {
         symbol, contract, timeframe, ts_utc, open, high, low, close, volume, session_label
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-
-    for (const bar of bars) {
-      statement.run(
-        bar.symbol,
-        bar.contract,
-        timeframe,
-        bar.tsUtc,
-        bar.open,
-        bar.high,
-        bar.low,
-        bar.close,
-        bar.volume,
-        bar.sessionLabel
-      );
+    this.db.exec("BEGIN");
+    try {
+      for (const bar of bars) {
+        statement.run(
+          bar.symbol,
+          bar.contract,
+          timeframe,
+          bar.tsUtc,
+          bar.open,
+          bar.high,
+          bar.low,
+          bar.close,
+          bar.volume,
+          bar.sessionLabel
+        );
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
     }
   }
 
@@ -150,8 +156,15 @@ export class SqliteStore {
         event_type, start_utc, end_utc, severity, blocked, source, notes
       ) VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-    for (const window of windows) {
-      statement.run(window.eventType, window.startUtc, window.endUtc, window.severity, window.blocked ? 1 : 0, window.source, window.notes ?? null);
+    this.db.exec("BEGIN");
+    try {
+      for (const window of windows) {
+        statement.run(window.eventType, window.startUtc, window.endUtc, window.severity, window.blocked ? 1 : 0, window.source, window.notes ?? null);
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
     }
   }
 
@@ -190,27 +203,34 @@ export class SqliteStore {
         stop_px, target_px, fees_usd, slippage_usd, pnl_usd, exit_reason, version, trade_source
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    for (const trade of trades) {
-      statement.run(
-        trade.id,
-        trade.strategyId,
-        trade.symbol,
-        trade.contract,
-        trade.side,
-        trade.qty,
-        trade.entryTs,
-        trade.exitTs,
-        trade.entryPx,
-        trade.exitPx,
-        trade.stopPx,
-        trade.targetPx,
-        trade.feesUsd,
-        trade.slippageUsd,
-        trade.pnlUsd,
-        trade.exitReason,
-        trade.version,
-        source
-      );
+    this.db.exec("BEGIN");
+    try {
+      for (const trade of trades) {
+        statement.run(
+          trade.id,
+          trade.strategyId,
+          trade.symbol,
+          trade.contract,
+          trade.side,
+          trade.qty,
+          trade.entryTs,
+          trade.exitTs,
+          trade.entryPx,
+          trade.exitPx,
+          trade.stopPx,
+          trade.targetPx,
+          trade.feesUsd,
+          trade.slippageUsd,
+          trade.pnlUsd,
+          trade.exitReason,
+          trade.version,
+          source
+        );
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
     }
   }
 
@@ -332,19 +352,26 @@ export class SqliteStore {
         first_ts_utc, last_ts_utc, rows_inserted, processed_at_utc, status, failure_reason
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    statement.run(
-      record.filePath,
-      record.fileSizeBytes,
-      record.fileModifiedTimeUtc,
-      record.contentHash,
-      record.detectedContract,
-      record.firstTsUtc,
-      record.lastTsUtc,
-      record.rowsInserted,
-      record.processedAtUtc,
-      record.status,
-      record.failureReason ?? null
-    );
+    this.db.exec("BEGIN");
+    try {
+      statement.run(
+        record.filePath,
+        record.fileSizeBytes,
+        record.fileModifiedTimeUtc,
+        record.contentHash,
+        record.detectedContract,
+        record.firstTsUtc,
+        record.lastTsUtc,
+        record.rowsInserted,
+        record.processedAtUtc,
+        record.status,
+        record.failureReason ?? null
+      );
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   listIngestionFiles(): IngestionFileRecord[] {
